@@ -8,7 +8,7 @@ class Producto {
   final int promoCantidad;
   final int promoPrecioPack;
   final bool controlaStock;
-  final int stock;
+  final Map<String, int> stockPorSucursal;
 
   const Producto({
     required this.id,
@@ -18,7 +18,7 @@ class Producto {
     this.promoCantidad = 0,
     this.promoPrecioPack = 0,
     this.controlaStock = true,
-    this.stock = 0,
+    this.stockPorSucursal = const {},
   });
 
   bool get tienePromo =>
@@ -26,8 +26,12 @@ class Producto {
       promoPrecioPack > 0 &&
       promoPrecioPack < promoCantidad * precio;
 
+  int stockEn(String sucursalId) => stockPorSucursal[sucursalId] ?? 0;
+
   factory Producto.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final datos = doc.data()!;
+    final stockCrudo = datos['stockPorSucursal'] as Map<String, dynamic>?;
+
     return Producto(
       id: doc.id,
       codigoBarras: datos['codigoBarras'] as String,
@@ -36,7 +40,12 @@ class Producto {
       promoCantidad: (datos['promoCantidad'] as num?)?.toInt() ?? 0,
       promoPrecioPack: (datos['promoPrecioPack'] as num?)?.toInt() ?? 0,
       controlaStock: datos['controlaStock'] as bool? ?? true,
-      stock: (datos['stock'] as num?)?.toInt() ?? 0,
+      stockPorSucursal: stockCrudo == null
+          ? const {}
+          : stockCrudo.map(
+              (sucursalId, valor) =>
+                  MapEntry(sucursalId, (valor as num).toInt()),
+            ),
     );
   }
 }

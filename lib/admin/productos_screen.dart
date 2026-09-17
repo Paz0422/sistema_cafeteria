@@ -5,11 +5,13 @@ import '../models/producto.dart';
 import '../utils/formato.dart';
 
 class ProductosScreen extends StatelessWidget {
+  final String sucursalId;
   final bool esAdmin;
   final bool mostrarAppBar;
 
   const ProductosScreen({
     super.key,
+    required this.sucursalId,
     this.esAdmin = false,
     this.mostrarAppBar = true,
   });
@@ -36,20 +38,22 @@ class ProductosScreen extends StatelessWidget {
               ),
             ),
           ),
+          // El catálogo (nombre, precio, promo) es único para todas las
+          // sucursales; lo único que cambia según `sucursalId` es cuánto
+          // stock se muestra y se edita de cada producto.
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: FirebaseFirestore.instance
                   .collection('productos')
-                  .orderBy('nombre')
                   .snapshots(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                final productos = snapshot.data!.docs
-                    .map(Producto.fromDoc)
-                    .toList();
+                final productos =
+                    snapshot.data!.docs.map(Producto.fromDoc).toList()
+                      ..sort((a, b) => a.nombre.compareTo(b.nombre));
 
                 if (productos.isEmpty) {
                   return const Center(
@@ -61,13 +65,14 @@ class ProductosScreen extends StatelessWidget {
                   itemCount: productos.length,
                   itemBuilder: (context, indice) {
                     final producto = productos[indice];
+                    final stock = producto.stockEn(sucursalId);
                     return ListTile(
                       title: Text(producto.nombre),
                       subtitle: Text(
                         '${formatearPesos(producto.precio)} · '
                         'Código: ${producto.codigoBarras}'
                         '${producto.tienePromo ? ' · Promo: ${producto.promoCantidad} x ${formatearPesos(producto.promoPrecioPack)}' : ''}'
-                        '${producto.controlaStock ? ' · Stock: ${producto.stock}' : ' · Sin control de stock'}',
+                        '${producto.controlaStock ? ' · Stock en esta sucursal: $stock' : ' · Sin control de stock'}',
                       ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -109,14 +114,16 @@ class ProductosScreen extends StatelessWidget {
   void _abrirFormulario(BuildContext context, Producto? producto) {
     showDialog(
       context: context,
-      builder: (context) => _FormularioProducto(producto: producto),
+      builder: (context) =>
+          _FormularioProducto(sucursalId: sucursalId, producto: producto),
     );
   }
 
   void _abrirAjusteStock(BuildContext context, Producto producto) {
     showDialog(
       context: context,
-      builder: (context) => _DialogoAjusteStock(producto: producto),
+      builder: (context) =>
+          _DialogoAjusteStock(sucursalId: sucursalId, producto: producto),
     );
   }
 
@@ -129,7 +136,8 @@ class ProductosScreen extends StatelessWidget {
       builder: (context) => AlertDialog(
         title: const Text('Eliminar producto'),
         content: Text(
-          '¿Eliminar "${producto.nombre}"? Esta acción no se puede deshacer.',
+          '¿Eliminar "${producto.nombre}"? Esta acción no se puede deshacer '
+          'y lo quita de todas las sucursales.',
         ),
         actions: [
           TextButton(
@@ -154,9 +162,10 @@ class ProductosScreen extends StatelessWidget {
 }
 
 class _FormularioProducto extends StatefulWidget {
+  final String sucursalId;
   final Producto? producto;
 
-  const _FormularioProducto({this.producto});
+  const _FormularioProducto({required this.sucursalId, this.producto});
 
   @override
   State<_FormularioProducto> createState() => _FormularioProductoState();
@@ -187,7 +196,9 @@ class _FormularioProductoState extends State<_FormularioProducto> {
           ).replaceFirst('\$', ''),
   );
   late final _stockController = TextEditingController(
-    text: widget.producto == null ? '' : '${widget.producto!.stock}',
+    text: widget.producto == null
+        ? ''
+        : '${widget.producto!.stockEn(widget.sucursalId)}',
   );
   late bool _controlaStock = widget.producto?.controlaStock ?? true;
   bool _guardando = false;
@@ -240,25 +251,33 @@ class _FormularioProductoState extends State<_FormularioProducto> {
       return;
     }
 
+    final stockIngresado = int.tryParse(_stockController.text) ?? 0;
+
     setState(() => _guardando = true);
     try {
-      final datos = {
+      final datosBase = {
         'nombre': nombre,
         'codigoBarras': codigoBarras,
         'precio': precio,
         'promoCantidad': promoCantidad,
         'promoPrecioPack': promoPrecioPack,
         'controlaStock': _controlaStock,
-        'stock': _controlaStock
-            ? (int.tryParse(_stockController.text) ?? 0)
-            : 0,
       };
 
       final coleccion = FirebaseFirestore.instance.collection('productos');
       if (widget.producto == null) {
-        await coleccion.add(datos);
+        await coleccion.add({
+          ...datosBase,
+          'stockPorSucursal': _controlaStock
+              ? {widget.sucursalId: stockIngresado}
+              : {},
+        });
       } else {
-        await coleccion.doc(widget.producto!.id).update(datos);
+        await coleccion.doc(widget.producto!.id).update({
+          ...datosBase,
+          if (_controlaStock)
+            'stockPorSucursal.${widget.sucursalId}': stockIngresado,
+        });
       }
 
       if (mounted) Navigator.pop(context);
@@ -368,7 +387,7 @@ class _FormularioProductoState extends State<_FormularioProducto> {
                   keyboardType: TextInputType.number,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   decoration: const InputDecoration(
-                    labelText: 'Stock disponible',
+                    labelText: 'Stock en esta sucursal',
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -397,9 +416,10 @@ class _FormularioProductoState extends State<_FormularioProducto> {
 }
 
 class _DialogoAjusteStock extends StatefulWidget {
+  final String sucursalId;
   final Producto producto;
 
-  const _DialogoAjusteStock({required this.producto});
+  const _DialogoAjusteStock({required this.sucursalId, required this.producto});
 
   @override
   State<_DialogoAjusteStock> createState() => _DialogoAjusteStockState();
@@ -421,10 +441,14 @@ class _DialogoAjusteStockState extends State<_DialogoAjusteStock> {
 
     setState(() => _guardando = true);
     try {
+      final stockActual = widget.producto.stockEn(widget.sucursalId);
       await FirebaseFirestore.instance
           .collection('productos')
           .doc(widget.producto.id)
-          .update({'stock': widget.producto.stock + cantidadAgregar});
+          .update({
+            'stockPorSucursal.${widget.sucursalId}':
+                stockActual + cantidadAgregar,
+          });
 
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -446,7 +470,10 @@ class _DialogoAjusteStockState extends State<_DialogoAjusteStock> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Stock actual: ${widget.producto.stock}'),
+          Text(
+            'Stock actual en esta sucursal: '
+            '${widget.producto.stockEn(widget.sucursalId)}',
+          ),
           const SizedBox(height: 12),
           TextField(
             controller: _cantidadController,

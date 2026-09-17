@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../pos/apertura_caja_screen.dart';
+import '../pos/selector_sucursal_apertura.dart';
 
 class HomeVendedor extends StatelessWidget {
   final String nombre;
@@ -11,7 +11,7 @@ class HomeVendedor extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Cafetería Fusión'),
+        title: Text('Hola, $nombre'),
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
@@ -20,38 +20,7 @@ class HomeVendedor extends StatelessWidget {
           ),
         ],
       ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              'Hola, $nombre',
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: 250,
-              height: 60,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) =>
-                          AperturaCajaScreen(vendedorNombre: nombre),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.point_of_sale),
-                label: const Text(
-                  'Abrir turno',
-                  style: TextStyle(fontSize: 18),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+      body: SelectorSucursalApertura(nombreVendedor: nombre),
     );
   }
 }

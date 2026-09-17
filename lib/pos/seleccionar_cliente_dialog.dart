@@ -4,7 +4,9 @@ import '../models/cliente.dart';
 import '../utils/formato.dart';
 
 class SeleccionarClienteDialog extends StatefulWidget {
-  const SeleccionarClienteDialog({super.key});
+  final String grupoClientesId;
+
+  const SeleccionarClienteDialog({super.key, required this.grupoClientesId});
 
   @override
   State<SeleccionarClienteDialog> createState() =>
@@ -50,6 +52,7 @@ class _SeleccionarClienteDialogState extends State<SeleccionarClienteDialog> {
     try {
       final direccion = _direccionNuevoController.text.trim();
       final ref = await FirebaseFirestore.instance.collection('clientes').add({
+        'grupoClientesId': widget.grupoClientesId,
         'nombre': nombre,
         'telefono': telefono,
         'direccion': direccion,
@@ -61,6 +64,7 @@ class _SeleccionarClienteDialogState extends State<SeleccionarClienteDialog> {
           context,
           Cliente(
             id: ref.id,
+            grupoClientesId: widget.grupoClientesId,
             nombre: nombre,
             telefono: telefono,
             direccion: direccion,
@@ -124,7 +128,7 @@ class _SeleccionarClienteDialogState extends State<SeleccionarClienteDialog> {
           child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: FirebaseFirestore.instance
                 .collection('clientes')
-                .orderBy('nombre')
+                .where('grupoClientesId', isEqualTo: widget.grupoClientesId)
                 .snapshots(),
             builder: (context, snapshot) {
               if (!snapshot.hasData) {
@@ -132,10 +136,12 @@ class _SeleccionarClienteDialogState extends State<SeleccionarClienteDialog> {
               }
 
               final busqueda = _busquedaController.text.trim().toLowerCase();
-              final clientes = snapshot.data!.docs
-                  .map(Cliente.fromDoc)
-                  .where((c) => c.nombre.toLowerCase().contains(busqueda))
-                  .toList();
+              final clientes =
+                  snapshot.data!.docs
+                      .map(Cliente.fromDoc)
+                      .where((c) => c.nombre.toLowerCase().contains(busqueda))
+                      .toList()
+                    ..sort((a, b) => a.nombre.compareTo(b.nombre));
 
               if (clientes.isEmpty) {
                 return const Center(child: Text('Sin clientes que coincidan'));

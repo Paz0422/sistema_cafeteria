@@ -4,7 +4,9 @@ import '../models/producto.dart';
 import '../utils/formato.dart';
 
 class SeleccionarProductoDialog extends StatefulWidget {
-  const SeleccionarProductoDialog({super.key});
+  final String sucursalId;
+
+  const SeleccionarProductoDialog({super.key, required this.sucursalId});
 
   @override
   State<SeleccionarProductoDialog> createState() =>
@@ -43,7 +45,6 @@ class _SeleccionarProductoDialogState extends State<SeleccionarProductoDialog> {
               child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 stream: FirebaseFirestore.instance
                     .collection('productos')
-                    .orderBy('nombre')
                     .snapshots(),
                 builder: (context, snapshot) {
                   if (!snapshot.hasData) {
@@ -53,10 +54,14 @@ class _SeleccionarProductoDialogState extends State<SeleccionarProductoDialog> {
                   final busqueda = _busquedaController.text
                       .trim()
                       .toLowerCase();
-                  final productos = snapshot.data!.docs
-                      .map(Producto.fromDoc)
-                      .where((p) => p.nombre.toLowerCase().contains(busqueda))
-                      .toList();
+                  final productos =
+                      snapshot.data!.docs
+                          .map(Producto.fromDoc)
+                          .where(
+                            (p) => p.nombre.toLowerCase().contains(busqueda),
+                          )
+                          .toList()
+                        ..sort((a, b) => a.nombre.compareTo(b.nombre));
 
                   if (productos.isEmpty) {
                     return const Center(
@@ -70,7 +75,12 @@ class _SeleccionarProductoDialogState extends State<SeleccionarProductoDialog> {
                       final producto = productos[indice];
                       return ListTile(
                         title: Text(producto.nombre),
-                        subtitle: Text(formatearPesos(producto.precio)),
+                        subtitle: Text(
+                          producto.controlaStock
+                              ? '${formatearPesos(producto.precio)} · '
+                                    'Stock aquí: ${producto.stockEn(widget.sucursalId)}'
+                              : formatearPesos(producto.precio),
+                        ),
                         onTap: () => Navigator.pop(context, producto),
                       );
                     },

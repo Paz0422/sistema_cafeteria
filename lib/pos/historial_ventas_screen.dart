@@ -15,11 +15,13 @@ class _StockInsuficienteCambio implements Exception {
 
 class HistorialVentasScreen extends StatelessWidget {
   final String turnoId;
+  final String sucursalId;
   final bool mostrarAppBar;
 
   const HistorialVentasScreen({
     super.key,
     required this.turnoId,
+    required this.sucursalId,
     this.mostrarAppBar = true,
   });
 
@@ -196,6 +198,7 @@ class HistorialVentasScreen extends StatelessWidget {
     final metodo = datos['metodoPago'] as String?;
     final clienteId = datos['clienteId'] as String?;
     final total = (datos['total'] as num?)?.toInt() ?? 0;
+    final sucursalId = datos['sucursalId'] as String? ?? '';
     final firestore = FirebaseFirestore.instance;
 
     try {
@@ -221,10 +224,13 @@ class HistorialVentasScreen extends StatelessWidget {
           if (datosProducto == null) continue;
           if (!(datosProducto['controlaStock'] as bool? ?? false)) continue;
 
-          final stockActual = (datosProducto['stock'] as num?)?.toInt() ?? 0;
+          final stockPorSucursal =
+              datosProducto['stockPorSucursal'] as Map<String, dynamic>?;
+          final stockActual =
+              (stockPorSucursal?[sucursalId] as num?)?.toInt() ?? 0;
           final cantidad = (items[i]['cantidad'] as num).toInt();
           transaccion.update(refsProductos[i], {
-            'stock': stockActual + cantidad,
+            'stockPorSucursal.$sucursalId': stockActual + cantidad,
           });
         }
 
@@ -257,6 +263,7 @@ class HistorialVentasScreen extends StatelessWidget {
   ) async {
     final datos = ventaDoc.data();
     final items = (datos['items'] as List).cast<Map<String, dynamic>>();
+    final sucursalId = datos['sucursalId'] as String? ?? '';
 
     final indiceElegido = items.length == 1
         ? 0
@@ -279,7 +286,7 @@ class HistorialVentasScreen extends StatelessWidget {
 
     final nuevoProducto = await showDialog<Producto>(
       context: context,
-      builder: (context) => const SeleccionarProductoDialog(),
+      builder: (context) => SeleccionarProductoDialog(sucursalId: sucursalId),
     );
     if (nuevoProducto == null || !context.mounted) return;
 
@@ -312,18 +319,28 @@ class HistorialVentasScreen extends StatelessWidget {
         final datosViejo = snapViejo.data();
         if (datosViejo != null &&
             (datosViejo['controlaStock'] as bool? ?? false)) {
-          final stockViejo = (datosViejo['stock'] as num?)?.toInt() ?? 0;
-          transaccion.update(refViejo, {'stock': stockViejo + cantidad});
+          final stockPorSucursalViejo =
+              datosViejo['stockPorSucursal'] as Map<String, dynamic>?;
+          final stockViejo =
+              (stockPorSucursalViejo?[sucursalId] as num?)?.toInt() ?? 0;
+          transaccion.update(refViejo, {
+            'stockPorSucursal.$sucursalId': stockViejo + cantidad,
+          });
         }
 
         final datosNuevo = snapNuevo.data();
         if (datosNuevo != null &&
             (datosNuevo['controlaStock'] as bool? ?? false)) {
-          final stockNuevo = (datosNuevo['stock'] as num?)?.toInt() ?? 0;
+          final stockPorSucursalNuevo =
+              datosNuevo['stockPorSucursal'] as Map<String, dynamic>?;
+          final stockNuevo =
+              (stockPorSucursalNuevo?[sucursalId] as num?)?.toInt() ?? 0;
           if (stockNuevo < cantidad) {
             throw _StockInsuficienteCambio(nuevoProducto.nombre, stockNuevo);
           }
-          transaccion.update(refNuevo, {'stock': stockNuevo - cantidad});
+          transaccion.update(refNuevo, {
+            'stockPorSucursal.$sucursalId': stockNuevo - cantidad,
+          });
         }
 
         final nuevoSubtotal = ItemCarrito(

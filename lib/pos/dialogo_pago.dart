@@ -21,8 +21,13 @@ class ResultadoPago {
 
 class DialogoPago extends StatefulWidget {
   final int total;
+  final String grupoClientesId;
 
-  const DialogoPago({super.key, required this.total});
+  const DialogoPago({
+    super.key,
+    required this.total,
+    required this.grupoClientesId,
+  });
 
   @override
   State<DialogoPago> createState() => _DialogoPagoState();
@@ -88,7 +93,8 @@ class _DialogoPagoState extends State<DialogoPago> {
   Future<void> _elegirCliente() async {
     final cliente = await showDialog<Cliente>(
       context: context,
-      builder: (context) => const SeleccionarClienteDialog(),
+      builder: (context) =>
+          SeleccionarClienteDialog(grupoClientesId: widget.grupoClientesId),
     );
     if (cliente != null) setState(() => _cliente = cliente);
   }

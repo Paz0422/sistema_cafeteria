@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../users/home_vendedor.dart';
 import '../utils/formato.dart';
 
 class _ResumenVentas {
@@ -71,11 +70,14 @@ class CierreTurnoScreen extends StatefulWidget {
   final int montoInicial;
   final bool mostrarAppBar;
 
+  final Widget Function() alCerrar;
+
   const CierreTurnoScreen({
     super.key,
     required this.turnoId,
     required this.vendedorNombre,
     required this.montoInicial,
+    required this.alCerrar,
     this.mostrarAppBar = true,
   });
 
@@ -113,27 +115,26 @@ class _CierreTurnoScreenState extends State<CierreTurnoScreen> {
       final efectivoEsperado = widget.montoInicial + resumenFinal.totalEfectivo;
       final diferencia = _totalContado - efectivoEsperado;
 
-      final vendedor = FirebaseAuth.instance.currentUser;
-      await FirebaseFirestore.instance.collection('cierres').add({
-        'fecha': FieldValue.serverTimestamp(),
-        'turnoId': widget.turnoId,
-        'vendedorUid': vendedor?.uid,
-        'vendedorNombre': widget.vendedorNombre,
-        'montoInicial': widget.montoInicial,
-        'totalVentas': resumenFinal.totalVentas,
-        'totalEfectivoVentas': resumenFinal.totalEfectivo,
-        'totalTarjeta': resumenFinal.totalTarjeta,
-        'totalCredito': resumenFinal.totalCredito,
-        'efectivoEsperado': efectivoEsperado,
-        'totalContado': _totalContado,
-        'diferencia': diferencia,
-      });
+      await FirebaseFirestore.instance
+          .collection('turnos')
+          .doc(widget.turnoId)
+          .update({
+            'estado': 'cerrado',
+            'fechaCierre': FieldValue.serverTimestamp(),
+            'totalVentas': resumenFinal.totalVentas,
+            'totalEfectivoVentas': resumenFinal.totalEfectivo,
+            'totalTarjeta': resumenFinal.totalTarjeta,
+            'totalCredito': resumenFinal.totalCredito,
+            'efectivoEsperado': efectivoEsperado,
+            'billetesCierre': _billetes,
+            'monedasCierre': _monedas,
+            'totalContado': _totalContado,
+            'diferencia': diferencia,
+          });
 
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (context) => HomeVendedor(nombre: widget.vendedorNombre),
-          ),
+          MaterialPageRoute(builder: (context) => widget.alCerrar()),
           (route) => false,
         );
       }

@@ -6,8 +6,15 @@ import 'pos_screen.dart';
 
 class AperturaCajaScreen extends StatefulWidget {
   final String vendedorNombre;
+  final String sucursalId;
+  final bool esAdmin;
 
-  const AperturaCajaScreen({super.key, required this.vendedorNombre});
+  const AperturaCajaScreen({
+    super.key,
+    required this.vendedorNombre,
+    required this.sucursalId,
+    this.esAdmin = false,
+  });
 
   @override
   State<AperturaCajaScreen> createState() => _AperturaCajaScreenState();
@@ -27,16 +34,28 @@ class _AperturaCajaScreenState extends State<AperturaCajaScreen> {
   Future<void> _abrirCaja() async {
     setState(() => _guardando = true);
     try {
+      final sucursalDoc = await FirebaseFirestore.instance
+          .collection('sucursales')
+          .doc(widget.sucursalId)
+          .get();
+      final grupoClientesId =
+          (sucursalDoc.data()?['grupoClientesId'] as String?)?.isNotEmpty ==
+              true
+          ? sucursalDoc.data()!['grupoClientesId'] as String
+          : widget.sucursalId;
+
       final vendedor = FirebaseAuth.instance.currentUser;
-      final aperturaRef = await FirebaseFirestore.instance
-          .collection('aperturas')
+      final turnoRef = await FirebaseFirestore.instance
+          .collection('turnos')
           .add({
-            'fecha': FieldValue.serverTimestamp(),
+            'estado': 'abierto',
+            'sucursalId': widget.sucursalId,
+            'fechaApertura': FieldValue.serverTimestamp(),
             'vendedorUid': vendedor?.uid,
             'vendedorNombre': widget.vendedorNombre,
             'montoInicial': _totalInicial,
-            'billetes': _billetes,
-            'monedas': _monedas,
+            'billetesApertura': _billetes,
+            'monedasApertura': _monedas,
           });
 
       if (mounted) {
@@ -44,9 +63,12 @@ class _AperturaCajaScreenState extends State<AperturaCajaScreen> {
           context,
           MaterialPageRoute(
             builder: (context) => PosScreen(
-              turnoId: aperturaRef.id,
+              turnoId: turnoRef.id,
+              sucursalId: widget.sucursalId,
+              grupoClientesId: grupoClientesId,
               vendedorNombre: widget.vendedorNombre,
               montoInicial: _totalInicial,
+              esAdmin: widget.esAdmin,
             ),
           ),
         );

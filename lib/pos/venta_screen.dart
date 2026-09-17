@@ -25,6 +25,8 @@ class _LimiteCreditoExcedido implements Exception {
 
 class VentaScreen extends StatefulWidget {
   final String turnoId;
+  final String sucursalId;
+  final String grupoClientesId;
   final String vendedorNombre;
   final int montoInicial;
   final bool mostrarAppBar;
@@ -32,6 +34,8 @@ class VentaScreen extends StatefulWidget {
   const VentaScreen({
     super.key,
     required this.turnoId,
+    required this.sucursalId,
+    required this.grupoClientesId,
     required this.vendedorNombre,
     required this.montoInicial,
     this.mostrarAppBar = true,
@@ -155,13 +159,14 @@ class _VentaScreenState extends State<VentaScreen> {
       );
       final cantidadEnCarrito = indice >= 0 ? _carrito[indice].cantidad : 0;
 
-      if (producto.controlaStock && cantidadEnCarrito + 1 > producto.stock) {
+      final stockDisponible = producto.stockEn(widget.sucursalId);
+      if (producto.controlaStock && cantidadEnCarrito + 1 > stockDisponible) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
                 'Sin stock suficiente de ${producto.nombre}. '
-                'Disponible: ${producto.stock}',
+                'Disponible: $stockDisponible',
               ),
             ),
           );
@@ -188,15 +193,16 @@ class _VentaScreenState extends State<VentaScreen> {
 
   void _cambiarCantidad(int indice, int delta) {
     final item = _carrito[indice];
+    final stockDisponible = item.producto.stockEn(widget.sucursalId);
 
     if (delta > 0 &&
         item.producto.controlaStock &&
-        item.cantidad + 1 > item.producto.stock) {
+        item.cantidad + 1 > stockDisponible) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             'Sin stock suficiente de ${item.producto.nombre}. '
-            'Disponible: ${item.producto.stock}',
+            'Disponible: $stockDisponible',
           ),
         ),
       );
@@ -251,8 +257,10 @@ class _VentaScreenState extends State<VentaScreen> {
       final nuevosStocks = <DocumentReference<Map<String, dynamic>>, int>{};
       for (var i = 0; i < itemsConStock.length; i++) {
         final item = itemsConStock[i];
+        final stockPorSucursal =
+            lecturas[i].data()?['stockPorSucursal'] as Map<String, dynamic>?;
         final stockActual =
-            (lecturas[i].data()?['stock'] as num?)?.toInt() ?? 0;
+            (stockPorSucursal?[widget.sucursalId] as num?)?.toInt() ?? 0;
 
         if (stockActual < item.cantidad) {
           throw _StockInsuficiente(item.producto.nombre, stockActual);
@@ -277,7 +285,9 @@ class _VentaScreenState extends State<VentaScreen> {
       }
 
       nuevosStocks.forEach(
-        (ref, stock) => transaccion.update(ref, {'stock': stock}),
+        (ref, stock) => transaccion.update(ref, {
+          'stockPorSucursal.${widget.sucursalId}': stock,
+        }),
       );
 
       if (clienteRef != null) {
@@ -287,6 +297,7 @@ class _VentaScreenState extends State<VentaScreen> {
       transaccion.set(firestore.collection('ventas').doc(), {
         'fecha': FieldValue.serverTimestamp(),
         'turnoId': widget.turnoId,
+        'sucursalId': widget.sucursalId,
         'total': _total,
         'metodoPago': resultado.metodo.name,
         'vuelto': resultado.vuelto,
@@ -313,7 +324,8 @@ class _VentaScreenState extends State<VentaScreen> {
   Future<void> _cobrar() async {
     final resultado = await showDialog<ResultadoPago>(
       context: context,
-      builder: (context) => DialogoPago(total: _total),
+      builder: (context) =>
+          DialogoPago(total: _total, grupoClientesId: widget.grupoClientesId),
     );
 
     if (resultado == null || !mounted) return;
@@ -399,6 +411,7 @@ class _VentaScreenState extends State<VentaScreen> {
           height: 560,
           child: HistorialVentasScreen(
             turnoId: widget.turnoId,
+            sucursalId: widget.sucursalId,
             mostrarAppBar: false,
           ),
         ),
@@ -521,11 +534,13 @@ class _VentaScreenState extends State<VentaScreen> {
                                       ),
                                       if (item.producto.controlaStock)
                                         Text(
-                                          'Quedan ${item.producto.stock - item.cantidad} disponibles',
+                                          'Quedan ${item.producto.stockEn(widget.sucursalId) - item.cantidad} disponibles',
                                           style: TextStyle(
                                             fontSize: 12,
                                             color:
-                                                item.producto.stock -
+                                                item.producto.stockEn(
+                                                          widget.sucursalId,
+                                                        ) -
                                                         item.cantidad <=
                                                     0
                                                 ? Colors.red

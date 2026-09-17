@@ -1,20 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../admin/clientes_screen.dart';
+import '../admin/home_admin.dart';
 import '../admin/productos_screen.dart';
+import '../users/home_vendedor.dart';
 import 'cierre_turno_screen.dart';
 import 'venta_screen.dart';
 
 class PosScreen extends StatefulWidget {
   final String turnoId;
+  final String sucursalId;
+  final String grupoClientesId;
   final String vendedorNombre;
   final int montoInicial;
+  final bool esAdmin;
 
   const PosScreen({
     super.key,
     required this.turnoId,
+    required this.sucursalId,
+    required this.grupoClientesId,
     required this.vendedorNombre,
     required this.montoInicial,
+    this.esAdmin = false,
   });
 
   @override
@@ -91,17 +99,30 @@ class _PosScreenState extends State<PosScreen> {
                 children: [
                   VentaScreen(
                     turnoId: widget.turnoId,
+                    sucursalId: widget.sucursalId,
+                    grupoClientesId: widget.grupoClientesId,
                     vendedorNombre: widget.vendedorNombre,
                     montoInicial: widget.montoInicial,
                     mostrarAppBar: false,
                   ),
-                  const ProductosScreen(mostrarAppBar: false),
-                  const ClientesScreen(mostrarAppBar: false),
+                  ProductosScreen(
+                    sucursalId: widget.sucursalId,
+                    esAdmin: widget.esAdmin,
+                    mostrarAppBar: false,
+                  ),
+                  ClientesScreen(
+                    grupoClientesId: widget.grupoClientesId,
+                    esAdmin: widget.esAdmin,
+                    mostrarAppBar: false,
+                  ),
                   CierreTurnoScreen(
                     turnoId: widget.turnoId,
                     vendedorNombre: widget.vendedorNombre,
                     montoInicial: widget.montoInicial,
                     mostrarAppBar: false,
+                    alCerrar: () => widget.esAdmin
+                        ? HomeAdmin(nombre: widget.vendedorNombre)
+                        : HomeVendedor(nombre: widget.vendedorNombre),
                   ),
                 ],
               ),

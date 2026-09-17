@@ -5,9 +5,16 @@ import '../models/cliente.dart';
 import '../utils/formato.dart';
 
 class ClientesScreen extends StatelessWidget {
+  final String grupoClientesId;
+  final bool esAdmin;
   final bool mostrarAppBar;
 
-  const ClientesScreen({super.key, this.mostrarAppBar = true});
+  const ClientesScreen({
+    super.key,
+    required this.grupoClientesId,
+    this.esAdmin = false,
+    this.mostrarAppBar = true,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -35,16 +42,16 @@ class ClientesScreen extends StatelessWidget {
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: FirebaseFirestore.instance
                   .collection('clientes')
-                  .orderBy('nombre')
+                  .where('grupoClientesId', isEqualTo: grupoClientesId)
                   .snapshots(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                final clientes = snapshot.data!.docs
-                    .map(Cliente.fromDoc)
-                    .toList();
+                final clientes =
+                    snapshot.data!.docs.map(Cliente.fromDoc).toList()
+                      ..sort((a, b) => a.nombre.compareTo(b.nombre));
 
                 if (clientes.isEmpty) {
                   return const Center(
@@ -88,15 +95,25 @@ class ClientesScreen extends StatelessWidget {
   void _abrirDetalle(BuildContext context, Cliente? cliente) {
     showDialog(
       context: context,
-      builder: (context) => _DialogoCliente(cliente: cliente),
+      builder: (context) => _DialogoCliente(
+        grupoClientesId: grupoClientesId,
+        esAdmin: esAdmin,
+        cliente: cliente,
+      ),
     );
   }
 }
 
 class _DialogoCliente extends StatefulWidget {
+  final String grupoClientesId;
+  final bool esAdmin;
   final Cliente? cliente;
 
-  const _DialogoCliente({this.cliente});
+  const _DialogoCliente({
+    required this.grupoClientesId,
+    required this.esAdmin,
+    this.cliente,
+  });
 
   @override
   State<_DialogoCliente> createState() => _DialogoClienteState();
@@ -121,6 +138,11 @@ class _DialogoClienteState extends State<_DialogoCliente> {
   bool _guardando = false;
 
   bool get _esNuevo => widget.cliente == null;
+
+  // Un vendedor solo puede registrar abonos sobre un cliente ya existente;
+  // editar sus datos (nombre, teléfono, límite) queda para admin, salvo
+  // que esté creando uno nuevo (ahí sí necesita cargar todo).
+  bool get _puedeEditarDatos => widget.esAdmin || _esNuevo;
 
   @override
   void dispose() {
@@ -159,7 +181,11 @@ class _DialogoClienteState extends State<_DialogoCliente> {
       };
 
       if (_esNuevo) {
-        await coleccion.add({...datos, 'deuda': 0});
+        await coleccion.add({
+          ...datos,
+          'grupoClientesId': widget.grupoClientesId,
+          'deuda': 0,
+        });
       } else {
         await coleccion.doc(widget.cliente!.id).update(datos);
       }
@@ -217,6 +243,7 @@ class _DialogoClienteState extends State<_DialogoCliente> {
           children: [
             TextField(
               controller: _nombreController,
+              enabled: _puedeEditarDatos,
               decoration: const InputDecoration(
                 labelText: 'Nombre',
                 border: OutlineInputBorder(),
@@ -225,6 +252,7 @@ class _DialogoClienteState extends State<_DialogoCliente> {
             const SizedBox(height: 12),
             TextField(
               controller: _telefonoController,
+              enabled: _puedeEditarDatos,
               keyboardType: TextInputType.phone,
               decoration: const InputDecoration(
                 labelText: 'Teléfono',
@@ -234,6 +262,7 @@ class _DialogoClienteState extends State<_DialogoCliente> {
             const SizedBox(height: 12),
             TextField(
               controller: _limiteController,
+              enabled: _puedeEditarDatos,
               keyboardType: TextInputType.number,
               inputFormatters: [InputFormatoMiles()],
               decoration: const InputDecoration(
@@ -245,6 +274,7 @@ class _DialogoClienteState extends State<_DialogoCliente> {
             const SizedBox(height: 12),
             TextField(
               controller: _direccionController,
+              enabled: _puedeEditarDatos,
               decoration: const InputDecoration(
                 labelText: 'Dirección (opcional)',
                 border: OutlineInputBorder(),
@@ -291,16 +321,17 @@ class _DialogoClienteState extends State<_DialogoCliente> {
           onPressed: () => Navigator.pop(context),
           child: const Text('Cerrar'),
         ),
-        FilledButton(
-          onPressed: _guardando ? null : _guardarDatos,
-          child: _guardando
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('Guardar'),
-        ),
+        if (_puedeEditarDatos)
+          FilledButton(
+            onPressed: _guardando ? null : _guardarDatos,
+            child: _guardando
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Guardar'),
+          ),
       ],
     );
   }

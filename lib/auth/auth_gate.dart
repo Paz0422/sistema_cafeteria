@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'login_screen.dart';
 import 'package:cafeteria_sistema/users/home_vendedor.dart';
 import 'package:cafeteria_sistema/admin/home_admin.dart';
+import '../widgets/logo_fusion.dart';
 
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -98,7 +99,7 @@ class _PantallaEspera extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.hourglass_top, size: 48),
+                const MascotaFusion(tamano: 140),
                 const SizedBox(height: 16),
                 Text(mensaje, textAlign: TextAlign.center),
               ],

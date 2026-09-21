@@ -4,12 +4,10 @@ import '../models/cliente.dart';
 import '../models/producto.dart';
 import '../models/sucursal.dart';
 import '../utils/formato.dart';
+import '../utils/resumen_ventas.dart';
+import '../theme/marca.dart';
 
 const _umbralStockBajo = 5;
-
-// Sobre este largo de rango las ventas se agrupan por mes en vez de por día,
-// para que el desglose no pase de unas 60 filas.
-const _maxDiasAgrupadoPorDia = 62;
 
 const _nombresDias = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'];
 const _nombresMeses = [
@@ -27,57 +25,10 @@ const _nombresMeses = [
   'dic',
 ];
 
-DateTime _soloDia(DateTime fecha) =>
-    DateTime(fecha.year, fecha.month, fecha.day);
-
 String _dosDigitos(int n) => n.toString().padLeft(2, '0');
 
 String _formatearDia(DateTime d) =>
     '${_dosDigitos(d.day)}/${_dosDigitos(d.month)}/${d.year}';
-
-enum _Periodo {
-  hoy('Hoy'),
-  ayer('Ayer'),
-  sieteDias('Últimos 7 días'),
-  mes('Este mes'),
-  personalizado('Personalizado');
-
-  final String etiqueta;
-  const _Periodo(this.etiqueta);
-}
-
-/// Rango de días completos: de [start] a [end], ambos incluidos.
-DateTimeRange _rangoDe(_Periodo periodo) {
-  final hoy = _soloDia(DateTime.now());
-  switch (periodo) {
-    case _Periodo.hoy:
-    case _Periodo.personalizado:
-      return DateTimeRange(start: hoy, end: hoy);
-    case _Periodo.ayer:
-      final ayer = DateTime(hoy.year, hoy.month, hoy.day - 1);
-      return DateTimeRange(start: ayer, end: ayer);
-    case _Periodo.sieteDias:
-      return DateTimeRange(
-        start: DateTime(hoy.year, hoy.month, hoy.day - 6),
-        end: hoy,
-      );
-    case _Periodo.mes:
-      return DateTimeRange(start: DateTime(hoy.year, hoy.month), end: hoy);
-  }
-}
-
-class _ResumenPeriodo {
-  int total = 0;
-  int cantidadVentas = 0;
-  int efectivo = 0;
-  int tarjeta = 0;
-  int credito = 0;
-  final Map<String, int> porSucursal = {};
-  final Map<String, int> unidadesPorProducto = {};
-  final Map<DateTime, int> porFecha = {};
-
-  int get ticketPromedio => cantidadVentas == 0 ? 0 : total ~/ cantidadVentas;
-}
 
 class _AlertaStock {
   final Producto producto;
@@ -117,8 +68,8 @@ class _EstadisticasScreenState extends State<EstadisticasScreen> {
       .collection('clientes')
       .snapshots();
 
-  _Periodo _periodo = _Periodo.hoy;
-  DateTimeRange _rango = _rangoDe(_Periodo.hoy);
+  PeriodoReporte _periodo = PeriodoReporte.hoy;
+  DateTimeRange _rango = rangoDe(PeriodoReporte.hoy);
   String? _sucursalFiltro;
   late Stream<QuerySnapshot<Map<String, dynamic>>> _ventasStream =
       _crearVentasStream();
@@ -139,16 +90,16 @@ class _EstadisticasScreenState extends State<EstadisticasScreen> {
         .snapshots();
   }
 
-  void _elegirPeriodo(_Periodo periodo) {
+  void _elegirPeriodo(PeriodoReporte periodo) {
     setState(() {
       _periodo = periodo;
-      _rango = _rangoDe(periodo);
+      _rango = rangoDe(periodo);
       _ventasStream = _crearVentasStream();
     });
   }
 
   Future<void> _elegirRangoPersonalizado() async {
-    final hoy = _soloDia(DateTime.now());
+    final hoy = soloDia(DateTime.now());
     final elegido = await showDateRangePicker(
       context: context,
       firstDate: DateTime(2024),
@@ -160,65 +111,23 @@ class _EstadisticasScreenState extends State<EstadisticasScreen> {
     if (elegido == null || !mounted) return;
 
     setState(() {
-      _periodo = _Periodo.personalizado;
+      _periodo = PeriodoReporte.personalizado;
       _rango = DateTimeRange(
-        start: _soloDia(elegido.start),
-        end: _soloDia(elegido.end),
+        start: soloDia(elegido.start),
+        end: soloDia(elegido.end),
       );
       _ventasStream = _crearVentasStream();
     });
   }
 
-  _ResumenPeriodo _resumir(
+  ResumenVentas _resumir(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
-    final dias = _rango.end.difference(_rango.start).inDays + 1;
-    final agruparPorMes = dias > _maxDiasAgrupadoPorDia;
-    DateTime claveDe(DateTime fecha) =>
-        agruparPorMes ? DateTime(fecha.year, fecha.month) : _soloDia(fecha);
-
-    final resumen = _ResumenPeriodo();
-    for (final doc in docs) {
-      final datos = doc.data();
-      if (datos['cancelada'] == true) continue;
-
-      final sucursalId = datos['sucursalId'] as String? ?? '';
-      if (_sucursalFiltro != null && sucursalId != _sucursalFiltro) continue;
-
-      final total = (datos['total'] as num?)?.toInt() ?? 0;
-      final montoEfectivo = (datos['montoEfectivo'] as num?)?.toInt() ?? 0;
-      final fecha = (datos['fecha'] as Timestamp?)?.toDate() ?? DateTime.now();
-
-      resumen.total += total;
-      resumen.cantidadVentas++;
-      resumen.porSucursal[sucursalId] =
-          (resumen.porSucursal[sucursalId] ?? 0) + total;
-      resumen.porFecha[claveDe(fecha)] =
-          (resumen.porFecha[claveDe(fecha)] ?? 0) + total;
-
-      // Igual que en el cierre de turno: una venta mixta se reparte entre
-      // su parte en efectivo y el resto, que fue con tarjeta.
-      switch (datos['metodoPago']) {
-        case 'efectivo':
-          resumen.efectivo += total;
-        case 'tarjeta':
-          resumen.tarjeta += total;
-        case 'mixto':
-          resumen.efectivo += montoEfectivo;
-          resumen.tarjeta += total - montoEfectivo;
-        case 'credito':
-          resumen.credito += total;
-      }
-
-      for (final item in (datos['items'] as List? ?? [])) {
-        final nombre = item['nombre'] as String? ?? '';
-        final cantidad = (item['cantidad'] as num?)?.toInt() ?? 0;
-        resumen.unidadesPorProducto[nombre] =
-            (resumen.unidadesPorProducto[nombre] ?? 0) + cantidad;
-      }
-    }
-    return resumen;
-  }
+    String? sucursalId,
+  ) => resumirVentas(
+    docs.map((doc) => doc.data()),
+    sucursalId: sucursalId,
+    porMes: agruparPorMes(_rango),
+  );
 
   String get _etiquetaRango {
     if (_rango.start == _rango.end) return _formatearDia(_rango.start);
@@ -270,7 +179,7 @@ class _EstadisticasScreenState extends State<EstadisticasScreen> {
                     )
                   else
                     _ContenidoVentas(
-                      resumen: _resumir(ventasSnap.data!.docs),
+                      resumen: _resumir(ventasSnap.data!.docs, filtro),
                       sucursales: sucursales,
                       sucursalFiltrada: filtro,
                       rango: _rango,
@@ -295,9 +204,9 @@ class _EstadisticasScreenState extends State<EstadisticasScreen> {
 }
 
 class _BarraFiltros extends StatelessWidget {
-  final _Periodo periodo;
+  final PeriodoReporte periodo;
   final String etiquetaRango;
-  final ValueChanged<_Periodo> onPeriodo;
+  final ValueChanged<PeriodoReporte> onPeriodo;
   final VoidCallback onPersonalizado;
   final List<Sucursal> sucursales;
   final String? sucursalId;
@@ -323,14 +232,14 @@ class _BarraFiltros extends StatelessWidget {
           runSpacing: 8,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            for (final p in _Periodo.values)
+            for (final p in PeriodoReporte.values)
               ChoiceChip(
                 label: Text(p.etiqueta),
-                avatar: p == _Periodo.personalizado
+                avatar: p == PeriodoReporte.personalizado
                     ? const Icon(Icons.date_range, size: 18)
                     : null,
                 selected: p == periodo,
-                onSelected: (_) => p == _Periodo.personalizado
+                onSelected: (_) => p == PeriodoReporte.personalizado
                     ? onPersonalizado()
                     : onPeriodo(p),
               ),
@@ -374,7 +283,7 @@ class _BarraFiltros extends StatelessWidget {
 }
 
 class _ContenidoVentas extends StatelessWidget {
-  final _ResumenPeriodo resumen;
+  final ResumenVentas resumen;
   final List<Sucursal> sucursales;
   final String? sucursalFiltrada;
   final DateTimeRange rango;
@@ -390,8 +299,7 @@ class _ContenidoVentas extends StatelessWidget {
   Widget build(BuildContext context) {
     final ranking = resumen.unidadesPorProducto.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
-    final dias = rango.end.difference(rango.start).inDays + 1;
-    final porMes = dias > _maxDiasAgrupadoPorDia;
+    final porMes = agruparPorMes(rango);
     final visibles = sucursalFiltrada == null
         ? sucursales
         : sucursales.where((s) => s.id == sucursalFiltrada).toList();
@@ -433,17 +341,17 @@ class _ContenidoVentas extends StatelessWidget {
                     _FilaMonto(
                       icono: Icons.payments_outlined,
                       titulo: 'Efectivo',
-                      monto: resumen.efectivo,
+                      monto: resumen.vendidoEfectivo,
                     ),
                     _FilaMonto(
                       icono: Icons.credit_card,
                       titulo: 'Tarjeta',
-                      monto: resumen.tarjeta,
+                      monto: resumen.vendidoTarjeta,
                     ),
                     _FilaMonto(
                       icono: Icons.assignment_ind_outlined,
                       titulo: 'Crédito',
-                      monto: resumen.credito,
+                      monto: resumen.vendidoCredito,
                     ),
                   ],
                 ),
@@ -782,7 +690,14 @@ class _TarjetaStat extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            Icon(icono, size: 32, color: Theme.of(context).colorScheme.primary),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Marca.doradoSuave,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icono, size: 26, color: Marca.cafe),
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(

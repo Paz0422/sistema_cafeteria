@@ -16,12 +16,14 @@ class _StockInsuficienteCambio implements Exception {
 class HistorialVentasScreen extends StatelessWidget {
   final String turnoId;
   final String sucursalId;
+  final bool esAdmin;
   final bool mostrarAppBar;
 
   const HistorialVentasScreen({
     super.key,
     required this.turnoId,
     required this.sucursalId,
+    this.esAdmin = false,
     this.mostrarAppBar = true,
   });
 
@@ -138,12 +140,17 @@ class HistorialVentasScreen extends StatelessWidget {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        TextButton.icon(
-                          onPressed: () => _cambiarProducto(context, ventaDoc),
-                          icon: const Icon(Icons.swap_horiz, size: 18),
-                          label: const Text('Cambiar producto'),
-                        ),
-                        const SizedBox(width: 8),
+                        // Corregir una venta cambia sus montos, así que solo
+                        // lo permiten las reglas de Firestore al admin.
+                        if (esAdmin) ...[
+                          TextButton.icon(
+                            onPressed: () =>
+                                _cambiarProducto(context, ventaDoc),
+                            icon: const Icon(Icons.swap_horiz, size: 18),
+                            label: const Text('Cambiar producto'),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
                         TextButton.icon(
                           onPressed: () => _cancelarVenta(context, ventaDoc),
                           icon: const Icon(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'constants.dart';
+import 'widgets/pantalla_marca.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -116,108 +117,93 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 400),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Crear cuenta',
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 24),
-                TextField(
-                  controller: _nombreController,
-                  decoration: const InputDecoration(
-                    labelText: 'Nombre y apellido',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _usuarioController,
-                  decoration: const InputDecoration(
-                    labelText: 'Usuario',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _passwordController,
-                  obscureText: !_passwordVisible,
-                  decoration: InputDecoration(
-                    labelText: 'Contraseña',
-                    border: const OutlineInputBorder(),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _passwordVisible
-                            ? Icons.visibility
-                            : Icons.visibility_off,
-                      ),
-                      onPressed: () {
-                        setState(() => _passwordVisible = !_passwordVisible);
-                      },
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _confirmarController,
-                  obscureText: !_confirmarVisible,
-                  decoration: InputDecoration(
-                    labelText: 'Confirmar contraseña',
-                    border: const OutlineInputBorder(),
-                    suffixIcon: IconButton(
-                      icon: Icon(
-                        _confirmarVisible
-                            ? Icons.visibility
-                            : Icons.visibility_off,
-                      ),
-                      onPressed: () {
-                        setState(() => _confirmarVisible = !_confirmarVisible);
-                      },
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _codigoController,
-                  decoration: const InputDecoration(
-                    labelText: 'Código de invitación',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    child: Text(
-                      _error!,
-                      style: const TextStyle(color: Colors.red),
-                    ),
-                  ),
-                SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: ElevatedButton(
-                    onPressed: _cargando ? null : _crearCuenta,
-                    child: _cargando
-                        ? const CircularProgressIndicator()
-                        : const Text('Crear cuenta'),
-                  ),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Ya tengo cuenta, volver a iniciar sesión'),
-                ),
-              ],
+    return PantallaMarca(
+      titulo: 'Crear cuenta',
+      subtitulo: 'Necesitas el código de invitación del local',
+      pie: BotonPieMarca(
+        texto: 'Ya tengo cuenta, volver a iniciar sesión',
+        onPressed: () => Navigator.pop(context),
+      ),
+      contenido: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _nombreController,
+            decoration: const InputDecoration(
+              labelText: 'Nombre y apellido',
+              prefixIcon: Icon(Icons.badge_outlined),
             ),
           ),
-        ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _usuarioController,
+            decoration: const InputDecoration(
+              labelText: 'Usuario',
+              prefixIcon: Icon(Icons.person_outline),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _passwordController,
+            obscureText: !_passwordVisible,
+            decoration: InputDecoration(
+              labelText: 'Contraseña',
+              prefixIcon: const Icon(Icons.lock_outline),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _passwordVisible ? Icons.visibility : Icons.visibility_off,
+                ),
+                onPressed: () {
+                  setState(() => _passwordVisible = !_passwordVisible);
+                },
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _confirmarController,
+            obscureText: !_confirmarVisible,
+            decoration: InputDecoration(
+              labelText: 'Confirmar contraseña',
+              prefixIcon: const Icon(Icons.lock_outline),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _confirmarVisible ? Icons.visibility : Icons.visibility_off,
+                ),
+                onPressed: () {
+                  setState(() => _confirmarVisible = !_confirmarVisible);
+                },
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _codigoController,
+            decoration: const InputDecoration(
+              labelText: 'Código de invitación',
+              prefixIcon: Icon(Icons.key_outlined),
+            ),
+          ),
+          const SizedBox(height: 24),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: Text(_error!, style: const TextStyle(color: Colors.red)),
+            ),
+          SizedBox(
+            height: 52,
+            child: FilledButton(
+              onPressed: _cargando ? null : _crearCuenta,
+              child: _cargando
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    )
+                  : const Text('Crear cuenta'),
+            ),
+          ),
+        ],
       ),
     );
   }

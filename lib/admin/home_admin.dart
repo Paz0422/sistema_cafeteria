@@ -8,6 +8,7 @@ import 'estadisticas_screen.dart';
 import 'productos_screen.dart';
 import 'sucursales_screen.dart';
 import 'usuarios_screen.dart';
+import '../widgets/logo_fusion.dart';
 
 class HomeAdmin extends StatefulWidget {
   final String nombre;
@@ -40,6 +41,10 @@ class _HomeAdminState extends State<HomeAdmin> {
             selectedIndex: _indice,
             onDestinationSelected: (indice) => setState(() => _indice = indice),
             labelType: NavigationRailLabelType.all,
+            leading: const Padding(
+              padding: EdgeInsets.only(top: 12, bottom: 16),
+              child: LogoFusion(tamano: 56),
+            ),
             destinations: const [
               NavigationRailDestination(
                 icon: Icon(Icons.bar_chart_outlined),

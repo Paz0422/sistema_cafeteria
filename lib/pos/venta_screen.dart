@@ -6,10 +6,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/cuenta_abierta.dart';
 import '../models/producto.dart';
 import '../models/item_carrito.dart';
+import '../utils/calculo_pago.dart';
 import '../utils/escritura_offline.dart';
 import '../utils/formato.dart';
 import 'dialogo_pago.dart';
 import 'historial_ventas_screen.dart';
+import '../theme/marca.dart';
+import '../widgets/logo_fusion.dart';
 
 class _StockInsuficiente implements Exception {
   final String nombre;
@@ -31,6 +34,7 @@ class VentaScreen extends StatefulWidget {
   final String grupoClientesId;
   final String vendedorNombre;
   final int montoInicial;
+  final bool esAdmin;
   final bool mostrarAppBar;
 
   const VentaScreen({
@@ -40,6 +44,7 @@ class VentaScreen extends StatefulWidget {
     required this.grupoClientesId,
     required this.vendedorNombre,
     required this.montoInicial,
+    this.esAdmin = false,
     this.mostrarAppBar = true,
   });
 
@@ -535,6 +540,7 @@ class _VentaScreenState extends State<VentaScreen> {
           child: HistorialVentasScreen(
             turnoId: widget.turnoId,
             sucursalId: widget.sucursalId,
+            esAdmin: widget.esAdmin,
             mostrarAppBar: false,
           ),
         ),
@@ -648,7 +654,17 @@ class _VentaScreenState extends State<VentaScreen> {
                   Expanded(
                     child: _carrito.isEmpty
                         ? const Center(
-                            child: Text('Escanea un producto para comenzar'),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                MascotaFusion(tamano: 150),
+                                SizedBox(height: 12),
+                                Text(
+                                  'Escanea un producto para comenzar',
+                                  style: TextStyle(color: Marca.textoSuave),
+                                ),
+                              ],
+                            ),
                           )
                         : ListView.builder(
                             itemCount: _carrito.length,
@@ -740,7 +756,7 @@ class _VentaScreenState extends State<VentaScreen> {
               width: 280,
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                color: Colors.white,
                 border: Border(
                   left: BorderSide(color: Theme.of(context).dividerColor),
                 ),
@@ -768,11 +784,39 @@ class _VentaScreenState extends State<VentaScreen> {
                         style: TextStyle(color: Colors.green[700]),
                       ),
                     ),
-                  Text(
-                    'Total: ${formatearPesos(_total)}',
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Marca.carbon,
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'TOTAL',
+                          style: TextStyle(
+                            color: Marca.textoSobreOscuro,
+                            fontSize: 12,
+                            letterSpacing: 1.4,
+                          ),
+                        ),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            formatearPesos(_total),
+                            style: const TextStyle(
+                              color: Marca.dorado,
+                              fontSize: 34,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const Spacer(),
@@ -830,19 +874,18 @@ class _PestanaCuenta extends StatelessWidget {
       0,
       (suma, item) => suma + item.subtotal,
     );
-    final colorPrimario = Theme.of(context).colorScheme.primary;
-
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(14),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
-          color: activa ? colorPrimario.withValues(alpha: 0.12) : null,
+          color: activa ? Marca.doradoSuave : Colors.white,
           border: Border.all(
-            color: activa ? colorPrimario : Colors.grey.shade400,
+            color: activa ? Marca.dorado : Marca.borde,
+            width: activa ? 2 : 1,
           ),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(14),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -854,8 +897,8 @@ class _PestanaCuenta extends StatelessWidget {
                 Text(
                   cuenta.nombre,
                   style: TextStyle(
-                    fontWeight: activa ? FontWeight.bold : FontWeight.normal,
-                    color: activa ? colorPrimario : null,
+                    fontWeight: activa ? FontWeight.w700 : FontWeight.w500,
+                    color: Marca.negro,
                   ),
                 ),
                 if (total > 0)

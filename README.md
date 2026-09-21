@@ -16,7 +16,9 @@ en **PC y tablet**, con lector de códigos de barras USB.
 - Promociones por pack: "cada N por $X" (el pack cuesta $X sin importar el precio unitario).
 - Pago en efectivo (con vuelto), tarjeta, mixto o **crédito** a un cliente.
 - Turnos: apertura de caja (billetes y monedas), cierre con cuadratura de efectivo.
-- Historial de ventas del turno, con cancelación y edición (revierte stock y deuda).
+- Historial de ventas del turno: el vendedor puede **cancelar** una venta de su
+  turno abierto (revierte stock y deuda); **corregirla** (cambiar producto) es
+  solo del admin.
 - Funciona sin internet (ver [Uso sin conexión](#uso-sin-conexión)).
 
 **Inventario**
@@ -72,8 +74,14 @@ Comprobaciones antes de subir cambios:
 
 ```bash
 flutter analyze
-flutter test test/tablet_layout_test.dart
+flutter test
 ```
+
+Las pruebas cubren la aritmética de dinero (promos por pack, vuelto y efectivo
+en caja de cada método de pago, límite de crédito), los totales del cierre de
+turno y de los reportes por rango de fechas, el formato de pesos, el diálogo de
+cobro completo y su diseño en tamaños de tablet. Los widgets que consultan
+Firestore no tienen pruebas automáticas (necesitan Firebase).
 
 ## Configuración de Firebase (primera vez)
 
@@ -107,6 +115,12 @@ convierte en `usuario@cafeteria.fusion` (constante `dominioInterno` en
   crearse a sí mismo como `admin`.
 - Solo un admin cambia roles (y no el propio, para no quedarse sin admins).
 - Sin ser `admin` o `vendedor`, ninguna colección es legible.
+- Un vendedor solo puede: crear ventas propias en su turno abierto (con la fecha
+  del servidor), **anular** una venta propia de un turno abierto (sin tocar
+  montos ni productos), y **cerrar** su turno abierto. Un turno cerrado o el
+  monto inicial no se pueden modificar.
+- La deuda de un cliente nunca queda negativa y un vendedor no puede subirla por
+  encima del límite de crédito (bajarla, con abonos o cancelaciones, sí).
 - La `apiKey` de `lib/main.dart` es pública por diseño en Firebase; lo que
   protege los datos son las reglas.
 - Recomendado: en Google Cloud Console → *APIs y servicios* → *Credenciales*,
@@ -182,8 +196,9 @@ lib/
                           usuarios, sucursales, historial de stock
   pos/                    Punto de venta: apertura, venta, pago, cierre, historial
   models/                 Producto, Cliente, Sucursal, carrito
-  utils/                  Formato de pesos, escrituras sin conexión, movimientos de stock
-test/                     Pruebas de diseño en tamaños de tablet
+  utils/                  Formato de pesos, cálculo de pago, resumen de ventas,
+                          escrituras sin conexión, movimientos de stock
+test/                     Pruebas de dinero, reportes, cobro y diseño en tablet
 firestore.rules           Reglas de seguridad
 firebase.json             Hosting + reglas
 ```
@@ -193,8 +208,6 @@ Colecciones de Firestore: `usuarios`, `sucursales`, `productos`, `clientes`,
 
 ## Estado y pendientes conocidos
 
-- `test/widget_test.dart` falla porque necesita Firebase inicializado en el
-  entorno de pruebas.
 - La cancelación/edición de ventas y los abonos no funcionan sin conexión.
 - No hay verificación de aplicaciones (App Check) activada.
 - El diseño en tablet solo está verificado con pruebas automáticas del diálogo

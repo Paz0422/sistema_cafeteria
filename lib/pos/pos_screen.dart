@@ -6,6 +6,7 @@ import '../admin/productos_screen.dart';
 import '../users/home_vendedor.dart';
 import 'cierre_turno_screen.dart';
 import 'venta_screen.dart';
+import '../theme/marca.dart';
 
 class PosScreen extends StatefulWidget {
   final String turnoId;
@@ -129,6 +130,7 @@ class _PosScreenState extends State<PosScreen> {
                     grupoClientesId: widget.grupoClientesId,
                     vendedorNombre: widget.vendedorNombre,
                     montoInicial: widget.montoInicial,
+                    esAdmin: widget.esAdmin,
                     mostrarAppBar: false,
                   ),
                   ProductosScreen(
@@ -176,37 +178,38 @@ class _AccionGrande extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorPrimario = Theme.of(context).colorScheme.primary;
-
     return SizedBox(
       height: 92,
       child: Card(
         elevation: seleccionado ? 4 : 1,
-        color: seleccionado ? colorPrimario.withValues(alpha: 0.12) : null,
+        shadowColor: Colors.black.withValues(alpha: 0.25),
+        color: seleccionado ? Marca.doradoSuave : Colors.white,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(18),
           side: BorderSide(
-            color: seleccionado ? colorPrimario : Colors.transparent,
-            width: 2,
+            color: seleccionado ? Marca.dorado : Marca.borde,
+            width: seleccionado ? 2 : 1,
           ),
         ),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(18),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icono, size: 32, color: seleccionado ? colorPrimario : null),
+              Icon(
+                icono,
+                size: 32,
+                color: seleccionado ? Marca.negro : Marca.cafe,
+              ),
               const SizedBox(height: 8),
               Text(
                 etiqueta,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 13,
-                  fontWeight: seleccionado
-                      ? FontWeight.bold
-                      : FontWeight.normal,
-                  color: seleccionado ? colorPrimario : null,
+                  fontWeight: seleccionado ? FontWeight.w700 : FontWeight.w500,
+                  color: Marca.negro,
                 ),
               ),
             ],

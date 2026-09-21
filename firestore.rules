@@ -80,26 +80,85 @@ service cloud.firestore {
     // sin filtrar por vendedor, y así la consulta se aprueba sin depender de
     // resource.data.
     match /ventas/{ventaId} {
+      // Una venta nueva: propia, con la fecha del servidor (no se puede
+      // retrasar), dentro de un turno propio que siga abierto, y solo con los
+      // campos que escribe la app.
       allow create: if esPersonal()
-        && request.resource.data.vendedorUid == request.auth.uid;
-      allow read, update: if esAdmin()
+        && request.resource.data.keys().hasOnly([
+          'fecha', 'turnoId', 'sucursalId', 'total', 'metodoPago', 'vuelto',
+          'montoEfectivo', 'vendedorUid', 'vendedorNombre', 'clienteId',
+          'clienteNombre', 'items'
+        ])
+        && request.resource.data.vendedorUid == request.auth.uid
+        && request.resource.data.fecha == request.time
+        && get(/databases/$(database)/documents/turnos/$(request.resource.data.turnoId)).data.vendedorUid == request.auth.uid
+        && get(/databases/$(database)/documents/turnos/$(request.resource.data.turnoId)).data.estado == 'abierto';
+
+      allow read: if esAdmin()
         || (esPersonal() && resource.data.vendedorUid == request.auth.uid);
+
+      // Un vendedor solo puede anular su propia venta, una vez, y mientras
+      // su turno siga abierto: nunca cambiar montos, productos ni método de
+      // pago. Corregir una venta (cambiar producto) es cosa del admin.
+      allow update: if esAdmin()
+        || (esPersonal()
+            && resource.data.vendedorUid == request.auth.uid
+            && resource.data.get('cancelada', false) == false
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['cancelada', 'fechaCancelacion'])
+            && request.resource.data.cancelada == true
+            && get(/databases/$(database)/documents/turnos/$(resource.data.turnoId)).data.estado == 'abierto');
+
       allow delete: if esAdmin();
     }
 
     match /turnos/{turnoId} {
+      // Un turno nace abierto y solo con los campos de la apertura.
       allow create: if esPersonal()
-        && request.resource.data.vendedorUid == request.auth.uid;
-      allow read, update: if esAdmin()
+        && request.resource.data.keys().hasOnly([
+          'estado', 'sucursalId', 'fechaApertura', 'vendedorUid',
+          'vendedorNombre', 'montoInicial', 'billetesApertura', 'monedasApertura'
+        ])
+        && request.resource.data.vendedorUid == request.auth.uid
+        && request.resource.data.estado == 'abierto';
+
+      allow read: if esAdmin()
         || (esPersonal() && resource.data.vendedorUid == request.auth.uid);
+
+      // El vendedor solo puede cerrar su turno abierto, escribiendo los
+      // campos del cierre. Un turno cerrado (o el monto inicial) ya no se
+      // puede tocar.
+      allow update: if esAdmin()
+        || (esPersonal()
+            && resource.data.vendedorUid == request.auth.uid
+            && resource.data.estado == 'abierto'
+            && request.resource.data.estado == 'cerrado'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'estado', 'fechaCierre', 'totalVentas', 'totalEfectivoVentas',
+              'totalTarjeta', 'totalCredito', 'efectivoEsperado',
+              'billetesCierre', 'monedasCierre', 'totalContado', 'diferencia'
+            ]));
+
       allow delete: if esAdmin();
     }
 
     match /clientes/{clienteId} {
-      allow read, create: if esPersonal();
-      allow update: if esAdmin() ||
-        (esPersonal() &&
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deuda']));
+      allow read: if esPersonal();
+
+      // Un cliente nuevo siempre parte sin deuda.
+      allow create: if esPersonal()
+        && request.resource.data.deuda == 0;
+
+      // El vendedor solo mueve la deuda (venta a crédito, cancelación,
+      // abono), sin dejarla negativa y sin subirla por encima del límite de
+      // crédito del cliente. Bajarla siempre se permite (abonos).
+      allow update: if esAdmin()
+        || (esPersonal()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deuda'])
+            && request.resource.data.deuda is number
+            && request.resource.data.deuda >= 0
+            && (request.resource.data.deuda <= resource.data.deuda
+                || request.resource.data.deuda <= resource.data.get('limiteCredito', 0)));
+
       allow delete: if esAdmin();
     }
   }

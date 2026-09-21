@@ -3,67 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../utils/escritura_offline.dart';
 import '../utils/formato.dart';
-
-class _ResumenVentas {
-  final int totalVentas;
-  final int totalEfectivo;
-  final int totalVendidoEfectivo;
-  final int totalTarjeta;
-  final int totalCredito;
-
-  const _ResumenVentas({
-    this.totalVentas = 0,
-    this.totalEfectivo = 0,
-    this.totalVendidoEfectivo = 0,
-    this.totalTarjeta = 0,
-    this.totalCredito = 0,
-  });
-
-  factory _ResumenVentas.desde(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
-    var totalVentas = 0;
-    var totalEfectivo = 0;
-    var totalVendidoEfectivo = 0;
-    var totalTarjeta = 0;
-    var totalCredito = 0;
-
-    for (final doc in docs) {
-      final datos = doc.data();
-      if (datos['cancelada'] == true) continue;
-
-      final total = (datos['total'] as num?)?.toInt() ?? 0;
-      final montoEfectivo = (datos['montoEfectivo'] as num?)?.toInt() ?? 0;
-      final metodo = datos['metodoPago'] as String?;
-
-      totalVentas += total;
-      totalEfectivo += montoEfectivo;
-
-      // Una venta mixta se reparte: su parte en efectivo suma a "efectivo"
-      // y el resto (lo que no fue efectivo) suma a "tarjeta", en vez de
-      // llevar una fila propia de "mixto".
-      switch (metodo) {
-        case 'efectivo':
-          totalVendidoEfectivo += total;
-        case 'tarjeta':
-          totalTarjeta += total;
-        case 'mixto':
-          totalVendidoEfectivo += montoEfectivo;
-          totalTarjeta += total - montoEfectivo;
-        case 'credito':
-          totalCredito += total;
-      }
-    }
-
-    return _ResumenVentas(
-      totalVentas: totalVentas,
-      totalEfectivo: totalEfectivo,
-      totalVendidoEfectivo: totalVendidoEfectivo,
-      totalTarjeta: totalTarjeta,
-      totalCredito: totalCredito,
-    );
-  }
-}
+import '../utils/resumen_ventas.dart';
 
 class CierreTurnoScreen extends StatefulWidget {
   final String turnoId;
@@ -113,8 +53,11 @@ class _CierreTurnoScreenState extends State<CierreTurnoScreen> {
       // que la última venta hecha un instante antes quede incluida aunque
       // el stream de la pantalla todavía no la haya reflejado.
       final snapshot = await _consultaVentas.get();
-      final resumenFinal = _ResumenVentas.desde(snapshot.docs);
-      final efectivoEsperado = widget.montoInicial + resumenFinal.totalEfectivo;
+      final resumenFinal = resumirVentas(
+        snapshot.docs.map((doc) => doc.data()),
+      );
+      final efectivoEsperado =
+          widget.montoInicial + resumenFinal.efectivoEnCaja;
       final diferencia = _totalContado - efectivoEsperado;
 
       await esperarConfirmacion(
@@ -124,10 +67,10 @@ class _CierreTurnoScreenState extends State<CierreTurnoScreen> {
             .update({
               'estado': 'cerrado',
               'fechaCierre': FieldValue.serverTimestamp(),
-              'totalVentas': resumenFinal.totalVentas,
-              'totalEfectivoVentas': resumenFinal.totalEfectivo,
-              'totalTarjeta': resumenFinal.totalTarjeta,
-              'totalCredito': resumenFinal.totalCredito,
+              'totalVentas': resumenFinal.total,
+              'totalEfectivoVentas': resumenFinal.efectivoEnCaja,
+              'totalTarjeta': resumenFinal.vendidoTarjeta,
+              'totalCredito': resumenFinal.vendidoCredito,
               'efectivoEsperado': efectivoEsperado,
               'billetesCierre': _billetes,
               'monedasCierre': _monedas,
@@ -191,8 +134,10 @@ class _CierreTurnoScreenState extends State<CierreTurnoScreen> {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final resumen = _ResumenVentas.desde(snapshot.data!.docs);
-          final efectivoEsperado = widget.montoInicial + resumen.totalEfectivo;
+          final resumen = resumirVentas(
+            snapshot.data!.docs.map((doc) => doc.data()),
+          );
+          final efectivoEsperado = widget.montoInicial + resumen.efectivoEnCaja;
           final diferencia = _totalContado - efectivoEsperado;
 
           return Center(
@@ -202,13 +147,10 @@ class _CierreTurnoScreenState extends State<CierreTurnoScreen> {
                 padding: const EdgeInsets.all(24),
                 children: [
                   _filaResumen('Monto inicial', widget.montoInicial),
-                  _filaResumen('Total vendido', resumen.totalVentas),
-                  _filaResumen(
-                    'Vendido en efectivo',
-                    resumen.totalVendidoEfectivo,
-                  ),
-                  _filaResumen('Vendido con tarjeta', resumen.totalTarjeta),
-                  _filaResumen('Vendido a crédito', resumen.totalCredito),
+                  _filaResumen('Total vendido', resumen.total),
+                  _filaResumen('Vendido en efectivo', resumen.vendidoEfectivo),
+                  _filaResumen('Vendido con tarjeta', resumen.vendidoTarjeta),
+                  _filaResumen('Vendido a crédito', resumen.vendidoCredito),
                   const Divider(height: 32),
                   _filaResumen(
                     'Efectivo esperado en caja',

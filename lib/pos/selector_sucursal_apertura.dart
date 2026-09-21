@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/sucursal.dart';
 import 'apertura_caja_screen.dart';
+import '../widgets/logo_fusion.dart';
 
 /// Elige en qué sucursal se va a trabajar este turno y abre la caja ahí.
 /// La usan tanto un vendedor normal (siempre puede elegir cualquier
@@ -60,56 +61,62 @@ class _SelectorSucursalAperturaState extends State<SelectorSucursalApertura> {
             : sucursales.first.id;
 
         return Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.point_of_sale, size: 48),
-                  const SizedBox(height: 16),
-                  Text(widget.descripcion, textAlign: TextAlign.center),
-                  const SizedBox(height: 24),
-                  DropdownButtonFormField<String>(
-                    initialValue: sucursalId,
-                    decoration: const InputDecoration(
-                      labelText: 'Sucursal',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: [
-                      for (final sucursal in sucursales)
-                        DropdownMenuItem(
-                          value: sucursal.id,
-                          child: Text(sucursal.nombre),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(28),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const MascotaFusion(tamano: 130),
+                      const SizedBox(height: 16),
+                      Text(widget.descripcion, textAlign: TextAlign.center),
+                      const SizedBox(height: 24),
+                      DropdownButtonFormField<String>(
+                        initialValue: sucursalId,
+                        decoration: const InputDecoration(
+                          labelText: 'Sucursal',
+                          border: OutlineInputBorder(),
                         ),
-                    ],
-                    onChanged: (valor) => setState(() => _sucursalId = valor),
-                  ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => AperturaCajaScreen(
-                              vendedorNombre: widget.nombreVendedor,
-                              sucursalId: sucursalId,
-                              esAdmin: widget.esAdmin,
+                        items: [
+                          for (final sucursal in sucursales)
+                            DropdownMenuItem(
+                              value: sucursal.id,
+                              child: Text(sucursal.nombre),
                             ),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.login),
-                      label: Text(widget.textoBoton),
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        ],
+                        onChanged: (valor) =>
+                            setState(() => _sucursalId = valor),
                       ),
-                    ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => AperturaCajaScreen(
+                                  vendedorNombre: widget.nombreVendedor,
+                                  sucursalId: sucursalId,
+                                  esAdmin: widget.esAdmin,
+                                ),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.login),
+                          label: Text(widget.textoBoton),
+                          style: FilledButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
           ),

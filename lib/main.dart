@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'auth/auth_gate.dart';
+import 'theme/marca.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,7 +33,11 @@ void main() async {
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  /// Pantalla inicial. Solo se cambia en las pruebas: AuthGate necesita
+  /// Firebase inicializado.
+  final Widget home;
+
+  const MyApp({super.key, this.home = const AuthGate()});
 
   @override
   Widget build(BuildContext context) {
@@ -42,8 +47,8 @@ class MyApp extends StatelessWidget {
       locale: const Locale('es'),
       supportedLocales: const [Locale('es')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      theme: ThemeData(colorSchemeSeed: Colors.brown, useMaterial3: true),
-      home: const AuthGate(),
+      theme: temaFusion(),
+      home: home,
     );
   }
 }

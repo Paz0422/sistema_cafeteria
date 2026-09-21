@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import '../models/cliente.dart';
+import '../utils/calculo_pago.dart';
 import '../utils/formato.dart';
 import 'seleccionar_cliente_dialog.dart';
-
-enum MetodoPago { efectivo, tarjeta, mixto, credito }
 
 class ResultadoPago {
   final MetodoPago metodo;
@@ -39,56 +38,18 @@ class _DialogoPagoState extends State<DialogoPago> {
   final _tarjetaController = TextEditingController();
   Cliente? _cliente;
 
-  int _leer(TextEditingController controller) {
-    return desformatearPesos(controller.text);
-  }
+  // Toda la aritmética del cobro vive en CalculoPago (probada aparte).
+  CalculoPago get _calculo => CalculoPago(
+    metodo: _metodo,
+    total: widget.total,
+    efectivoIngresado: desformatearPesos(_efectivoController.text),
+    tarjetaIngresada: desformatearPesos(_tarjetaController.text),
+    cliente: _cliente,
+  );
 
-  int get _recibido {
-    switch (_metodo) {
-      case MetodoPago.efectivo:
-        return _leer(_efectivoController);
-      case MetodoPago.tarjeta:
-        return widget.total;
-      case MetodoPago.mixto:
-        return _leer(_efectivoController) + _leer(_tarjetaController);
-      case MetodoPago.credito:
-        return widget.total;
-    }
-  }
+  int get _vuelto => _calculo.vuelto;
 
-  int get _vuelto => _recibido - widget.total;
-
-  // Cuánto efectivo queda realmente en la caja por esta venta: en una
-  // venta mixta el vuelto siempre sale del efectivo, así que lo que
-  // ingresa de verdad a la caja es el total menos lo pagado con tarjeta.
-  int get _montoEfectivo {
-    switch (_metodo) {
-      case MetodoPago.efectivo:
-        return widget.total;
-      case MetodoPago.mixto:
-        return widget.total - _leer(_tarjetaController);
-      case MetodoPago.tarjeta:
-      case MetodoPago.credito:
-        return 0;
-    }
-  }
-
-  bool get _puedeConfirmar {
-    switch (_metodo) {
-      case MetodoPago.efectivo:
-        return _recibido >= widget.total;
-      case MetodoPago.tarjeta:
-        return true;
-      case MetodoPago.mixto:
-        // La tarjeta no puede cubrir más que el total: el resto siempre
-        // se paga (y se vuelve) en efectivo.
-        return _recibido >= widget.total &&
-            _leer(_tarjetaController) <= widget.total;
-      case MetodoPago.credito:
-        return _cliente != null &&
-            _cliente!.deuda + widget.total <= _cliente!.limiteCredito;
-    }
-  }
+  bool get _puedeConfirmar => _calculo.puedeConfirmar;
 
   Future<void> _elegirCliente() async {
     final cliente = await showDialog<Cliente>(
@@ -243,8 +204,8 @@ class _DialogoPagoState extends State<DialogoPago> {
                   context,
                   ResultadoPago(
                     metodo: _metodo,
-                    vuelto: _vuelto > 0 ? _vuelto : 0,
-                    montoEfectivo: _montoEfectivo,
+                    vuelto: _calculo.vueltoAEntregar,
+                    montoEfectivo: _calculo.montoEfectivo,
                     cliente: _cliente,
                   ),
                 )

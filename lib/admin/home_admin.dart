@@ -138,13 +138,13 @@ class _HomeAdminState extends State<HomeAdmin> {
               'y bajar stock, cosas que un vendedor normal no puede).',
           textoBoton: 'Entrar como vendedor',
         ),
-        _ConSucursalSeleccionada(
-          builder: (sucursal) => ProductosScreen(
-            sucursalId: sucursal.id,
-            usuarioNombre: widget.nombre,
-            esAdmin: true,
-            mostrarAppBar: false,
-          ),
+        // El catálogo es el mismo para todas las sucursales: no hace falta
+        // elegir una; cada producto muestra el stock de todas.
+        ProductosScreen(
+          sucursalId: null,
+          usuarioNombre: widget.nombre,
+          esAdmin: true,
+          mostrarAppBar: false,
         ),
         _ConSucursalSeleccionada(
           builder: (sucursal) => ClientesScreen(

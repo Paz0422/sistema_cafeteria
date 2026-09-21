@@ -103,7 +103,9 @@ ResumenVentas resumirVentas(
     final fecha = (datos['fecha'] as Timestamp?)?.toDate() ?? DateTime.now();
 
     resumen.total += total;
-    resumen.cantidadVentas++;
+    // Un cambio de producto ajusta los montos pero no es una venta más: no
+    // cuenta en la cantidad de ventas ni en el ticket promedio.
+    if (datos['esCambio'] != true) resumen.cantidadVentas++;
     resumen.efectivoEnCaja += montoEfectivo;
     resumen.porSucursal[idSucursal] =
         (resumen.porSucursal[idSucursal] ?? 0) + total;

@@ -1,31 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../models/item_carrito.dart';
-import '../models/producto.dart';
+import '../utils/cambio_venta.dart';
 import '../utils/formato.dart';
-import 'seleccionar_producto_dialog.dart';
+import 'dialogo_cambio.dart';
 import '../theme/marca.dart';
-
-class _StockInsuficienteCambio implements Exception {
-  final String nombre;
-  final int disponible;
-
-  _StockInsuficienteCambio(this.nombre, this.disponible);
-}
 
 class HistorialVentasScreen extends StatelessWidget {
   final String turnoId;
   final String sucursalId;
+  final String vendedorNombre;
   final bool esAdmin;
   final bool mostrarAppBar;
+
+  /// Texto de ayuda bajo el título (por ejemplo, cuando se abre para hacer un
+  /// cambio de producto).
+  final String? ayuda;
 
   const HistorialVentasScreen({
     super.key,
     required this.turnoId,
     required this.sucursalId,
+    required this.vendedorNombre,
     this.esAdmin = false,
     this.mostrarAppBar = true,
+    this.ayuda,
   });
 
   @override
@@ -59,6 +58,17 @@ class HistorialVentasScreen extends StatelessWidget {
                 ],
               ),
             ),
+          if (ayuda != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  ayuda!,
+                  style: const TextStyle(color: Marca.textoSuave, fontSize: 13),
+                ),
+              ),
+            ),
           Expanded(child: _listaVentas(vendedorUid)),
         ],
       ),
@@ -79,7 +89,8 @@ class HistorialVentasScreen extends StatelessWidget {
 
         // Se ordena en el cliente (más reciente primero) para no depender
         // de un índice compuesto en Firestore.
-        final ventas = snapshot.data!.docs.toList()
+        final docs = snapshot.data!.docs;
+        final ventas = docs.where((d) => d.data()['esCambio'] != true).toList()
           ..sort((a, b) {
             final fechaA = (a.data()['fecha'] as Timestamp?)?.toDate();
             final fechaB = (b.data()['fecha'] as Timestamp?)?.toDate();
@@ -88,23 +99,45 @@ class HistorialVentasScreen extends StatelessWidget {
             return fechaB.compareTo(fechaA);
           });
 
+        // Los cambios son registros aparte que apuntan a su venta original.
+        final cambiosDe = <String, List<Map<String, dynamic>>>{};
+        for (final d in docs.where((d) => d.data()['esCambio'] == true)) {
+          final original = d.data()['ventaOriginalId'] as String?;
+          if (original != null) {
+            cambiosDe.putIfAbsent(original, () => []).add(d.data());
+          }
+        }
+
         if (ventas.isEmpty) {
           return const Center(
             child: Text('Todavía no registras ventas en este turno'),
           );
         }
 
+        List<Map<String, dynamic>> itemsDe(Map<String, dynamic> datos) =>
+            ((datos['items'] as List?) ?? const [])
+                .cast<Map<String, dynamic>>();
+
         return ListView.builder(
           itemCount: ventas.length,
           itemBuilder: (context, indice) {
             final ventaDoc = ventas[indice];
             final datos = ventaDoc.data();
-            final total = (datos['total'] as num?)?.toInt() ?? 0;
+            final cambios = cambiosDe[ventaDoc.id] ?? const [];
+            final totalOriginal = (datos['total'] as num?)?.toInt() ?? 0;
+            // Lo que la venta vale hoy: el total original más lo que sumaron
+            // o restaron sus cambios.
+            final total = cambios.fold<int>(
+              totalOriginal,
+              (suma, c) => suma + ((c['total'] as num?)?.toInt() ?? 0),
+            );
             final metodo = datos['metodoPago'] as String? ?? '';
             final clienteNombre = datos['clienteNombre'] as String?;
             final fecha = (datos['fecha'] as Timestamp?)?.toDate();
-            final items = (datos['items'] as List?) ?? [];
             final cancelada = datos['cancelada'] as bool? ?? false;
+            final items = itemsNetos(itemsDe(datos), [
+              for (final c in cambios) itemsDe(c),
+            ]);
 
             return ExpansionTile(
               title: Text(
@@ -116,54 +149,60 @@ class HistorialVentasScreen extends StatelessWidget {
               subtitle: Text(
                 [
                   if (cancelada) 'CANCELADA',
+                  if (cambios.isNotEmpty) 'CON CAMBIO',
                   _etiquetaMetodo(metodo),
                   if (fecha != null)
                     '${fecha.hour.toString().padLeft(2, '0')}:'
                         '${fecha.minute.toString().padLeft(2, '0')}',
                   ?clienteNombre,
                 ].join(' · '),
-                style: cancelada ? TextStyle(color: Marca.peligro) : null,
+                style: cancelada
+                    ? const TextStyle(color: Marca.peligro)
+                    : cambios.isNotEmpty
+                    ? const TextStyle(color: Marca.dorado)
+                    : null,
               ),
               children: [
                 ...items.map(
                   (item) => ListTile(
                     dense: true,
-                    title: Text('${item['nombre']}'),
+                    title: Text(item.nombre),
                     trailing: Text(
-                      '${item['cantidad']} × '
-                      '${formatearPesos((item['precioUnitario'] as num).toInt())}',
+                      '${item.cantidad} × ${formatearPesos(item.precioUnitario)}',
                     ),
                   ),
                 ),
+                for (final c in cambios) _FilaCambio(datos: c),
                 if (!cancelada)
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                    child: Wrap(
+                      alignment: WrapAlignment.end,
+                      spacing: 8,
+                      runSpacing: 4,
                       children: [
-                        // Corregir una venta cambia sus montos, así que solo
-                        // lo permiten las reglas de Firestore al admin.
-                        if (esAdmin) ...[
-                          TextButton.icon(
+                        if (items.isNotEmpty)
+                          FilledButton.tonalIcon(
                             onPressed: () =>
-                                _cambiarProducto(context, ventaDoc),
+                                _cambiarProducto(context, ventaDoc, items),
                             icon: const Icon(Icons.swap_horiz, size: 18),
                             label: const Text('Cambiar producto'),
                           ),
-                          const SizedBox(width: 8),
-                        ],
-                        TextButton.icon(
-                          onPressed: () => _cancelarVenta(context, ventaDoc),
-                          icon: const Icon(
-                            Icons.cancel_outlined,
-                            size: 18,
-                            color: Marca.peligro,
+                        // Una venta con cambios ya no se cancela entera: el
+                        // stock y la caja ya se movieron con cada cambio.
+                        if (cambios.isEmpty)
+                          TextButton.icon(
+                            onPressed: () => _cancelarVenta(context, ventaDoc),
+                            icon: const Icon(
+                              Icons.cancel_outlined,
+                              size: 18,
+                              color: Marca.peligro,
+                            ),
+                            label: const Text(
+                              'Cancelar venta',
+                              style: TextStyle(color: Marca.peligro),
+                            ),
                           ),
-                          label: const Text(
-                            'Cancelar venta',
-                            style: TextStyle(color: Marca.peligro),
-                          ),
-                        ),
                       ],
                     ),
                   ),
@@ -268,147 +307,26 @@ class HistorialVentasScreen extends StatelessWidget {
   Future<void> _cambiarProducto(
     BuildContext context,
     QueryDocumentSnapshot<Map<String, dynamic>> ventaDoc,
+    List<ItemVenta> items,
   ) async {
     final datos = ventaDoc.data();
-    final items = (datos['items'] as List).cast<Map<String, dynamic>>();
-    final sucursalId = datos['sucursalId'] as String? ?? '';
-
-    final indiceElegido = items.length == 1
-        ? 0
-        : await showDialog<int>(
-            context: context,
-            builder: (context) => SimpleDialog(
-              title: const Text('¿Qué producto quieres cambiar?'),
-              children: [
-                for (var i = 0; i < items.length; i++)
-                  SimpleDialogOption(
-                    onPressed: () => Navigator.pop(context, i),
-                    child: Text(
-                      '${items[i]['nombre']} (x${items[i]['cantidad']})',
-                    ),
-                  ),
-              ],
-            ),
-          );
-    if (indiceElegido == null || !context.mounted) return;
-
-    final nuevoProducto = await showDialog<Producto>(
+    final hecho = await showDialog<bool>(
       context: context,
-      builder: (context) => SeleccionarProductoDialog(sucursalId: sucursalId),
+      builder: (context) => DialogoCambio(
+        ventaId: ventaDoc.id,
+        turnoId: turnoId,
+        sucursalId: sucursalId,
+        vendedorNombre: vendedorNombre,
+        metodoOriginal: datos['metodoPago'] as String? ?? '',
+        clienteId: datos['clienteId'] as String?,
+        clienteNombre: datos['clienteNombre'] as String?,
+        items: items,
+      ),
     );
-    if (nuevoProducto == null || !context.mounted) return;
-
-    final itemViejo = items[indiceElegido];
-    final productoViejoId = itemViejo['productoId'] as String;
-    final cantidad = (itemViejo['cantidad'] as num).toInt();
-
-    if (productoViejoId == nuevoProducto.id) return;
-
-    final firestore = FirebaseFirestore.instance;
-    final refViejo = firestore.collection('productos').doc(productoViejoId);
-    final refNuevo = firestore.collection('productos').doc(nuevoProducto.id);
-    final metodo = datos['metodoPago'] as String?;
-    final clienteId = datos['clienteId'] as String?;
-    final totalViejo = (datos['total'] as num?)?.toInt() ?? 0;
-    final montoEfectivoViejo = (datos['montoEfectivo'] as num?)?.toInt() ?? 0;
-
-    try {
-      await firestore.runTransaction((transaccion) async {
-        final snapViejo = await transaccion.get(refViejo);
-        final snapNuevo = await transaccion.get(refNuevo);
-
-        DocumentReference<Map<String, dynamic>>? clienteRef;
-        DocumentSnapshot<Map<String, dynamic>>? clienteSnap;
-        if (metodo == 'credito' && clienteId != null) {
-          clienteRef = firestore.collection('clientes').doc(clienteId);
-          clienteSnap = await transaccion.get(clienteRef);
-        }
-
-        final datosViejo = snapViejo.data();
-        if (datosViejo != null &&
-            (datosViejo['controlaStock'] as bool? ?? false)) {
-          final stockPorSucursalViejo =
-              datosViejo['stockPorSucursal'] as Map<String, dynamic>?;
-          final stockViejo =
-              (stockPorSucursalViejo?[sucursalId] as num?)?.toInt() ?? 0;
-          transaccion.update(refViejo, {
-            'stockPorSucursal.$sucursalId': stockViejo + cantidad,
-          });
-        }
-
-        final datosNuevo = snapNuevo.data();
-        if (datosNuevo != null &&
-            (datosNuevo['controlaStock'] as bool? ?? false)) {
-          final stockPorSucursalNuevo =
-              datosNuevo['stockPorSucursal'] as Map<String, dynamic>?;
-          final stockNuevo =
-              (stockPorSucursalNuevo?[sucursalId] as num?)?.toInt() ?? 0;
-          if (stockNuevo < cantidad) {
-            throw _StockInsuficienteCambio(nuevoProducto.nombre, stockNuevo);
-          }
-          transaccion.update(refNuevo, {
-            'stockPorSucursal.$sucursalId': stockNuevo - cantidad,
-          });
-        }
-
-        final nuevoSubtotal = ItemCarrito(
-          producto: nuevoProducto,
-          cantidad: cantidad,
-        ).subtotal;
-        final nuevosItems = List<Map<String, dynamic>>.from(items);
-        nuevosItems[indiceElegido] = {
-          'productoId': nuevoProducto.id,
-          'nombre': nuevoProducto.nombre,
-          'cantidad': cantidad,
-          'precioUnitario': nuevoProducto.precio,
-          'subtotal': nuevoSubtotal,
-        };
-        final nuevoTotal = nuevosItems.fold<int>(
-          0,
-          (suma, item) => suma + (item['subtotal'] as int),
-        );
-        final diferencia = nuevoTotal - totalViejo;
-
-        final actualizacion = <String, dynamic>{
-          'items': nuevosItems,
-          'total': nuevoTotal,
-          'editada': true,
-          'fechaEdicion': FieldValue.serverTimestamp(),
-        };
-
-        if (metodo == 'efectivo') {
-          actualizacion['montoEfectivo'] = nuevoTotal;
-        } else if (metodo == 'mixto') {
-          actualizacion['montoEfectivo'] = montoEfectivoViejo + diferencia;
-        }
-
-        if (clienteRef != null && clienteSnap != null) {
-          final deudaActual =
-              (clienteSnap.data()?['deuda'] as num?)?.toInt() ?? 0;
-          final nuevaDeuda = deudaActual + diferencia;
-          transaccion.update(clienteRef, {
-            'deuda': nuevaDeuda < 0 ? 0 : nuevaDeuda,
-          });
-        }
-
-        transaccion.update(ventaDoc.reference, actualizacion);
-      });
-    } on _StockInsuficienteCambio catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Sin stock suficiente de ${e.nombre}. Disponible: ${e.disponible}',
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo cambiar el producto: $e')),
-        );
-      }
+    if (hecho == true && context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Cambio registrado')));
     }
   }
 
@@ -419,4 +337,45 @@ class HistorialVentasScreen extends StatelessWidget {
     'credito' => 'Crédito',
     _ => metodo,
   };
+}
+
+/// Una línea del detalle de una venta que describe un cambio ya hecho.
+class _FilaCambio extends StatelessWidget {
+  final Map<String, dynamic> datos;
+
+  const _FilaCambio({required this.datos});
+
+  @override
+  Widget build(BuildContext context) {
+    final items = ((datos['items'] as List?) ?? const [])
+        .cast<Map<String, dynamic>>();
+    final devuelto = items.isNotEmpty ? items.first['nombre'] : '';
+    final nuevo = items.length > 1 ? items[1]['nombre'] : '';
+    final unidades = items.length > 1
+        ? (items[1]['cantidad'] as num?)?.toInt() ?? 1
+        : 1;
+    final diferencia = (datos['total'] as num?)?.toInt() ?? 0;
+    final medio = switch (datos['metodoPago']) {
+      'tarjeta' => 'tarjeta',
+      'credito' => 'a la deuda',
+      _ => 'efectivo',
+    };
+
+    return ListTile(
+      dense: true,
+      leading: const Icon(Icons.swap_horiz, size: 18, color: Marca.dorado),
+      title: Text('$devuelto → $nuevo (x$unidades)'),
+      trailing: Text(
+        diferencia == 0
+            ? 'Sin diferencia'
+            : diferencia > 0
+            ? 'Cobrado ${formatearPesos(diferencia)} ($medio)'
+            : 'Devuelto ${formatearPesos(-diferencia)} ($medio)',
+        style: TextStyle(
+          fontSize: 12,
+          color: diferencia < 0 ? Marca.exito : Marca.textoSuave,
+        ),
+      ),
+    );
+  }
 }

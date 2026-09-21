@@ -234,8 +234,9 @@ class _BarraFiltros extends StatelessWidget {
     );
 
     final selectorSucursal = SizedBox(
-      width: compacto ? double.infinity : 240,
+      width: compacto ? double.infinity : 280,
       child: DropdownButtonFormField<String?>(
+        isExpanded: true,
         initialValue: sucursalId,
         decoration: const InputDecoration(
           labelText: 'Sucursal',

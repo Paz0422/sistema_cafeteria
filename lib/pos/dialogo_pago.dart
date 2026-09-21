@@ -23,10 +23,16 @@ class DialogoPago extends StatefulWidget {
   final int total;
   final String grupoClientesId;
 
+  /// Cómo se elige al cliente de una venta a crédito. Por defecto abre la
+  /// lista de clientes; en las pruebas se reemplaza para no depender de
+  /// Firebase.
+  final Future<Cliente?> Function(BuildContext context)? elegirCliente;
+
   const DialogoPago({
     super.key,
     required this.total,
     required this.grupoClientesId,
+    this.elegirCliente,
   });
 
   @override
@@ -53,12 +59,35 @@ class _DialogoPagoState extends State<DialogoPago> {
   bool get _puedeConfirmar => _calculo.puedeConfirmar;
 
   Future<void> _elegirCliente() async {
-    final cliente = await showDialog<Cliente>(
-      context: context,
-      builder: (context) =>
-          SeleccionarClienteDialog(grupoClientesId: widget.grupoClientesId),
+    final cliente =
+        await (widget.elegirCliente?.call(context) ??
+            showDialog<Cliente>(
+              context: context,
+              builder: (context) => SeleccionarClienteDialog(
+                grupoClientesId: widget.grupoClientesId,
+              ),
+            ));
+    if (cliente != null && mounted) setState(() => _cliente = cliente);
+  }
+
+  void _confirmar() {
+    if (!_puedeConfirmar) return;
+    Navigator.pop(
+      context,
+      ResultadoPago(
+        metodo: _metodo,
+        vuelto: _calculo.vueltoAEntregar,
+        montoEfectivo: _calculo.montoEfectivo,
+        cliente: _cliente,
+      ),
     );
-    if (cliente != null) setState(() => _cliente = cliente);
+  }
+
+  void _elegirMetodo(MetodoPago metodo) {
+    setState(() => _metodo = metodo);
+    // Al elegir crédito sin cliente, se abre de una vez la lista de clientes
+    // para no tener que apretar "Elegir cliente".
+    if (metodo == MetodoPago.credito && _cliente == null) _elegirCliente();
   }
 
   @override
@@ -114,7 +143,7 @@ class _DialogoPagoState extends State<DialogoPago> {
                 ],
                 selected: {_metodo},
                 onSelectionChanged: (seleccion) =>
-                    setState(() => _metodo = seleccion.first),
+                    _elegirMetodo(seleccion.first),
               ),
               const SizedBox(height: 16),
               if (_metodo == MetodoPago.efectivo || _metodo == MetodoPago.mixto)
@@ -127,6 +156,8 @@ class _DialogoPagoState extends State<DialogoPago> {
                     border: OutlineInputBorder(),
                   ),
                   onChanged: (_) => setState(() {}),
+                  // Con Enter se confirma, sin buscar el botón.
+                  onSubmitted: (_) => _confirmar(),
                 ),
               if (_metodo == MetodoPago.mixto) ...[
                 const SizedBox(height: 12),
@@ -200,17 +231,7 @@ class _DialogoPagoState extends State<DialogoPago> {
           child: const Text('Cancelar'),
         ),
         FilledButton(
-          onPressed: _puedeConfirmar
-              ? () => Navigator.pop(
-                  context,
-                  ResultadoPago(
-                    metodo: _metodo,
-                    vuelto: _calculo.vueltoAEntregar,
-                    montoEfectivo: _calculo.montoEfectivo,
-                    cliente: _cliente,
-                  ),
-                )
-              : null,
+          onPressed: _puedeConfirmar ? _confirmar : null,
           child: const Text('Confirmar pago'),
         ),
       ],

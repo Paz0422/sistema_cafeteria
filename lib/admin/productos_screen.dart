@@ -2,14 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/producto.dart';
+import '../models/sucursal.dart';
 import '../utils/escritura_offline.dart';
 import '../utils/formato.dart';
 import '../utils/movimientos_stock.dart';
+import '../pos/dialogo_ajuste_stock.dart';
 import 'historial_stock_screen.dart';
 import '../theme/marca.dart';
 
+/// Catálogo de productos.
+///
+/// El catálogo (nombre, código, precio y promo) es único para todas las
+/// sucursales; lo único que cambia entre una y otra es el stock. Por eso el
+/// admin lo ve sin elegir sucursal ([sucursalId] nulo): cada producto muestra
+/// el stock de todas y el formulario deja editar el de cada una. Con
+/// [sucursalId] (el punto de venta) se ve y se edita solo el de esa sucursal.
 class ProductosScreen extends StatelessWidget {
-  final String sucursalId;
+  final String? sucursalId;
   final String usuarioNombre;
   final bool esAdmin;
   final bool mostrarAppBar;
@@ -28,114 +37,100 @@ class ProductosScreen extends StatelessWidget {
       appBar: mostrarAppBar
           ? AppBar(title: const Text('Productos y precios'))
           : null,
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: () => _abrirFormulario(context, null),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Agregar producto'),
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                  ),
-                ),
-                if (esAdmin) ...[
-                  const SizedBox(width: 12),
-                  OutlinedButton.icon(
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) =>
-                            HistorialStockScreen(sucursalId: sucursalId),
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        // Solo el modo "todas las sucursales" necesita la lista.
+        stream: sucursalId == null
+            ? FirebaseFirestore.instance.collection('sucursales').snapshots()
+            : null,
+        builder: (context, sucursalesSnap) {
+          final sucursales =
+              (sucursalesSnap.data?.docs.map(Sucursal.fromDoc).toList() ?? [])
+                ..sort((a, b) => a.nombre.compareTo(b.nombre));
+
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: () => _abrirFormulario(context, null),
+                        icon: const Icon(Icons.add),
+                        label: const Text('Agregar producto'),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
                       ),
                     ),
-                    icon: const Icon(Icons.history),
-                    label: const Text('Historial'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 16,
-                        horizontal: 20,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          // El catálogo (nombre, precio, promo) es único para todas las
-          // sucursales; lo único que cambia según `sucursalId` es cuánto
-          // stock se muestra y se edita de cada producto.
-          Expanded(
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection('productos')
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                final productos =
-                    snapshot.data!.docs.map(Producto.fromDoc).toList()
-                      ..sort((a, b) => a.nombre.compareTo(b.nombre));
-
-                if (productos.isEmpty) {
-                  return const Center(
-                    child: Text('Aún no hay productos cargados'),
-                  );
-                }
-
-                return ListView.builder(
-                  itemCount: productos.length,
-                  itemBuilder: (context, indice) {
-                    final producto = productos[indice];
-                    final stock = producto.stockEn(sucursalId);
-                    return ListTile(
-                      title: Text(producto.nombre),
-                      subtitle: Text(
-                        '${formatearPesos(producto.precio)} · '
-                        'Código: ${producto.codigoBarras}'
-                        '${producto.tienePromo ? ' · Promo: ${producto.promoCantidad} x ${formatearPesos(producto.promoPrecioPack)}' : ''}'
-                        '${producto.controlaStock ? ' · Stock en esta sucursal: $stock' : ' · Sin control de stock'}',
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: Icon(
-                              esAdmin
-                                  ? Icons.edit_outlined
-                                  : Icons.add_box_outlined,
+                    if (esAdmin) ...[
+                      const SizedBox(width: 12),
+                      OutlinedButton.icon(
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => HistorialStockScreen(
+                              sucursalId: sucursalId,
+                              nombresSucursal: {
+                                for (final s in sucursales) s.id: s.nombre,
+                              },
                             ),
-                            tooltip: esAdmin
-                                ? 'Editar producto'
-                                : 'Agregar stock',
-                            onPressed: esAdmin
-                                ? () => _abrirFormulario(context, producto)
-                                : producto.controlaStock
-                                ? () => _abrirAjusteStock(context, producto)
-                                : null,
                           ),
-                          if (esAdmin)
-                            IconButton(
-                              icon: const Icon(Icons.delete_outline),
-                              onPressed: () =>
-                                  _confirmarEliminar(context, producto),
-                            ),
-                        ],
+                        ),
+                        icon: const Icon(Icons.history),
+                        label: const Text('Historial'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 16,
+                            horizontal: 20,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Expanded(
+                child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: FirebaseFirestore.instance
+                      .collection('productos')
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    final productos =
+                        snapshot.data!.docs.map(Producto.fromDoc).toList()
+                          ..sort((a, b) => a.nombre.compareTo(b.nombre));
+
+                    if (productos.isEmpty) {
+                      return const Center(
+                        child: Text('Aún no hay productos cargados'),
+                      );
+                    }
+
+                    return ListView.builder(
+                      itemCount: productos.length,
+                      itemBuilder: (context, indice) => _FilaProducto(
+                        producto: productos[indice],
+                        sucursalId: sucursalId,
+                        sucursales: sucursales,
+                        esAdmin: esAdmin,
+                        onEditar: () =>
+                            _abrirFormulario(context, productos[indice]),
+                        onAgregarStock: () =>
+                            _abrirAjusteStock(context, productos[indice]),
+                        onEliminar: () =>
+                            _confirmarEliminar(context, productos[indice]),
                       ),
                     );
                   },
-                );
-              },
-            ),
-          ),
-        ],
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -154,8 +149,8 @@ class ProductosScreen extends StatelessWidget {
   void _abrirAjusteStock(BuildContext context, Producto producto) {
     showDialog(
       context: context,
-      builder: (context) => _DialogoAjusteStock(
-        sucursalId: sucursalId,
+      builder: (context) => DialogoAjusteStock(
+        sucursalId: sucursalId!,
         usuarioNombre: usuarioNombre,
         producto: producto,
       ),
@@ -196,8 +191,124 @@ class ProductosScreen extends StatelessWidget {
   }
 }
 
+class _FilaProducto extends StatelessWidget {
+  final Producto producto;
+  final String? sucursalId;
+  final List<Sucursal> sucursales;
+  final bool esAdmin;
+  final VoidCallback onEditar;
+  final VoidCallback onAgregarStock;
+  final VoidCallback onEliminar;
+
+  const _FilaProducto({
+    required this.producto,
+    required this.sucursalId,
+    required this.sucursales,
+    required this.esAdmin,
+    required this.onEditar,
+    required this.onAgregarStock,
+    required this.onEliminar,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final detalle =
+        '${formatearPesos(producto.precio)} · '
+        'Código: ${producto.codigoBarras}'
+        '${producto.tienePromo ? ' · Promo: ${producto.promoCantidad} x ${formatearPesos(producto.promoPrecioPack)}' : ''}';
+
+    return ListTile(
+      title: Text(producto.nombre),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(detalle),
+          if (!producto.controlaStock)
+            const Text('Sin control de stock')
+          else
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  if (sucursalId == null)
+                    for (final s in sucursales)
+                      _ChipStock(
+                        nombre: s.nombre,
+                        stock: producto.stockEn(s.id),
+                      )
+                  else
+                    _ChipStock(
+                      nombre: 'Esta sucursal',
+                      stock: producto.stockEn(sucursalId!),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: Icon(esAdmin ? Icons.edit_outlined : Icons.add_box_outlined),
+            tooltip: esAdmin ? 'Editar producto' : 'Agregar stock',
+            onPressed: esAdmin
+                ? onEditar
+                : producto.controlaStock
+                ? onAgregarStock
+                : null,
+          ),
+          if (esAdmin)
+            IconButton(
+              icon: const Icon(Icons.delete_outline),
+              onPressed: onEliminar,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Stock de una sucursal en una pastilla: rojo sin stock, ámbar si queda poco.
+class _ChipStock extends StatelessWidget {
+  final String nombre;
+  final int stock;
+
+  const _ChipStock({required this.nombre, required this.stock});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = stock <= 0
+        ? Marca.peligro
+        : stock <= 5
+        ? Marca.alerta
+        : Marca.textoSobreOscuro;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Text(
+        '$nombre: $stock',
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
 class _FormularioProducto extends StatefulWidget {
-  final String sucursalId;
+  /// Con sucursal (punto de venta): se edita el stock de esa sucursal. Sin
+  /// ella (catálogo del admin): no se toca el stock, que se carga desde el
+  /// panel vendedor de cada sucursal.
+  final String? sucursalId;
   final String usuarioNombre;
   final Producto? producto;
 
@@ -235,13 +346,18 @@ class _FormularioProductoState extends State<_FormularioProducto> {
             widget.producto!.promoPrecioPack,
           ).replaceFirst('\$', ''),
   );
-  late final _stockController = TextEditingController(
-    text: widget.producto == null
-        ? ''
-        : '${widget.producto!.stockEn(widget.sucursalId)}',
-  );
+  // Solo hay campo de stock cuando se edita desde una sucursal.
+  late final Map<String, TextEditingController> _stockControllers = {
+    for (final id in _idsStock)
+      id: TextEditingController(
+        text: widget.producto == null ? '' : '${widget.producto!.stockEn(id)}',
+      ),
+  };
   late bool _controlaStock = widget.producto?.controlaStock ?? true;
   bool _guardando = false;
+
+  List<String> get _idsStock =>
+      widget.sucursalId != null ? [widget.sucursalId!] : const [];
 
   @override
   void dispose() {
@@ -252,7 +368,9 @@ class _FormularioProductoState extends State<_FormularioProducto> {
     _precioController.dispose();
     _promoCantidadController.dispose();
     _promoPrecioController.dispose();
-    _stockController.dispose();
+    for (final c in _stockControllers.values) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -291,8 +409,6 @@ class _FormularioProductoState extends State<_FormularioProducto> {
       return;
     }
 
-    final stockIngresado = int.tryParse(_stockController.text) ?? 0;
-
     setState(() => _guardando = true);
     try {
       final coleccion = FirebaseFirestore.instance.collection('productos');
@@ -328,42 +444,56 @@ class _FormularioProductoState extends State<_FormularioProducto> {
         'controlaStock': _controlaStock,
       };
 
+      // Stock que se escribió en cada campo.
+      final ingresado = {
+        for (final e in _stockControllers.entries)
+          e.key: int.tryParse(e.value.text) ?? 0,
+      };
+
       final batch = FirebaseFirestore.instance.batch();
       if (widget.producto == null) {
         final ref = coleccion.doc();
         batch.set(ref, {
           ...datosBase,
-          'stockPorSucursal': _controlaStock
-              ? {widget.sucursalId: stockIngresado}
-              : {},
+          'stockPorSucursal': _controlaStock ? ingresado : {},
         });
-        if (_controlaStock && stockIngresado > 0) {
-          registrarMovimientoStock(
-            batch,
-            productoId: ref.id,
-            productoNombre: nombre,
-            sucursalId: widget.sucursalId,
-            tipo: TipoMovimientoStock.stockInicial,
-            cantidad: stockIngresado,
-            stockAnterior: 0,
-            usuarioNombre: widget.usuarioNombre,
-          );
+        if (_controlaStock) {
+          for (final e in ingresado.entries.where((e) => e.value > 0)) {
+            registrarMovimientoStock(
+              batch,
+              productoId: ref.id,
+              productoNombre: nombre,
+              sucursalId: e.key,
+              tipo: TipoMovimientoStock.stockInicial,
+              cantidad: e.value,
+              stockAnterior: 0,
+              usuarioNombre: widget.usuarioNombre,
+            );
+          }
         }
       } else {
-        final stockAnterior = widget.producto!.stockEn(widget.sucursalId);
+        // Solo se escribe el stock de las sucursales que cambiaron: así una
+        // venta que ocurra mientras se edita no se pisa en las demás.
+        final cambios = _controlaStock
+            ? {
+                for (final e in ingresado.entries)
+                  if (e.value != widget.producto!.stockEn(e.key))
+                    e.key: e.value,
+              }
+            : <String, int>{};
         batch.update(coleccion.doc(widget.producto!.id), {
           ...datosBase,
-          if (_controlaStock)
-            'stockPorSucursal.${widget.sucursalId}': stockIngresado,
+          for (final e in cambios.entries) 'stockPorSucursal.${e.key}': e.value,
         });
-        if (_controlaStock && stockIngresado != stockAnterior) {
+        for (final e in cambios.entries) {
+          final stockAnterior = widget.producto!.stockEn(e.key);
           registrarMovimientoStock(
             batch,
             productoId: widget.producto!.id,
             productoNombre: nombre,
-            sucursalId: widget.sucursalId,
+            sucursalId: e.key,
             tipo: TipoMovimientoStock.ajuste,
-            cantidad: stockIngresado - stockAnterior,
+            cantidad: e.value - stockAnterior,
             stockAnterior: stockAnterior,
             usuarioNombre: widget.usuarioNombre,
           );
@@ -472,134 +602,28 @@ class _FormularioProductoState extends State<_FormularioProducto> {
                 value: _controlaStock,
                 onChanged: (valor) => setState(() => _controlaStock = valor),
               ),
-              if (_controlaStock)
-                TextField(
-                  controller: _stockController,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: const InputDecoration(
-                    labelText: 'Stock en esta sucursal',
-                    border: OutlineInputBorder(),
-                  ),
+              if (_controlaStock && _stockControllers.isEmpty)
+                const Text(
+                  'El stock de cada sucursal se carga desde el panel '
+                  'vendedor.',
+                  style: TextStyle(fontSize: 12, color: Marca.textoSuave),
                 ),
+              if (_controlaStock)
+                for (final e in _stockControllers.values) ...[
+                  const SizedBox(height: 4),
+                  TextField(
+                    controller: e,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    decoration: const InputDecoration(
+                      labelText: 'Stock en esta sucursal',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
             ],
           ),
         ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(
-          onPressed: _guardando ? null : _guardar,
-          child: _guardando
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('Guardar'),
-        ),
-      ],
-    );
-  }
-}
-
-class _DialogoAjusteStock extends StatefulWidget {
-  final String sucursalId;
-  final String usuarioNombre;
-  final Producto producto;
-
-  const _DialogoAjusteStock({
-    required this.sucursalId,
-    required this.usuarioNombre,
-    required this.producto,
-  });
-
-  @override
-  State<_DialogoAjusteStock> createState() => _DialogoAjusteStockState();
-}
-
-class _DialogoAjusteStockState extends State<_DialogoAjusteStock> {
-  final _cantidadController = TextEditingController();
-  bool _guardando = false;
-
-  @override
-  void dispose() {
-    _cantidadController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _guardar() async {
-    final cantidadAgregar = int.tryParse(_cantidadController.text);
-    if (cantidadAgregar == null || cantidadAgregar <= 0) return;
-
-    setState(() => _guardando = true);
-    try {
-      // Se suma con increment() en vez de escribir "stock visto + cantidad":
-      // así una venta que ocurra mientras este diálogo está abierto no se
-      // pisa.
-      final batch = FirebaseFirestore.instance.batch();
-      batch.update(
-        FirebaseFirestore.instance
-            .collection('productos')
-            .doc(widget.producto.id),
-        {
-          'stockPorSucursal.${widget.sucursalId}': FieldValue.increment(
-            cantidadAgregar,
-          ),
-        },
-      );
-      registrarMovimientoStock(
-        batch,
-        productoId: widget.producto.id,
-        productoNombre: widget.producto.nombre,
-        sucursalId: widget.sucursalId,
-        tipo: TipoMovimientoStock.ingreso,
-        cantidad: cantidadAgregar,
-        stockAnterior: widget.producto.stockEn(widget.sucursalId),
-        usuarioNombre: widget.usuarioNombre,
-      );
-      await esperarConfirmacion(batch.commit());
-
-      if (mounted) Navigator.pop(context);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('No se pudo actualizar: $e')));
-      }
-    } finally {
-      if (mounted) setState(() => _guardando = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text('Agregar stock: ${widget.producto.nombre}'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Stock actual en esta sucursal: '
-            '${widget.producto.stockEn(widget.sucursalId)}',
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _cantidadController,
-            keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: 'Cantidad que llegó',
-              border: OutlineInputBorder(),
-              prefixText: '+ ',
-            ),
-          ),
-        ],
       ),
       actions: [
         TextButton(

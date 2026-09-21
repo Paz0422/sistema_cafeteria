@@ -9,6 +9,9 @@ import '../models/item_carrito.dart';
 import '../utils/calculo_pago.dart';
 import '../utils/escritura_offline.dart';
 import '../utils/formato.dart';
+import '../utils/busqueda_productos.dart';
+import '../utils/cuentas_guardadas.dart';
+import 'dialogo_ajuste_stock.dart';
 import 'dialogo_pago.dart';
 import 'historial_ventas_screen.dart';
 import '../theme/marca.dart';
@@ -70,6 +73,10 @@ class _VentaScreenState extends State<VentaScreen> {
   // aun sin internet), y sus metadatos dicen si hay conexión con el servidor.
   Map<String, Producto> _catalogo = {};
   bool _enLinea = true;
+
+  // Al recuperar cuentas guardadas, sus productos traen los precios de cuando
+  // se guardaron: en cuanto llega el catálogo se actualizan a los vigentes.
+  bool _refrescarPendiente = false;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _suscripcion;
 
   @override
@@ -86,7 +93,70 @@ class _VentaScreenState extends State<VentaScreen> {
             };
             _enLinea = !snapshot.metadata.isFromCache;
           });
+          _refrescarConCatalogo();
         }, onError: (_) {});
+    _restaurarCuentas();
+  }
+
+  /// Guarda en este equipo las cuentas abiertas, para no perderlas si se corta
+  /// la luz o se cierra la página. Se llama después de cada cambio.
+  void _persistir() {
+    guardarCuentas(
+      widget.turnoId,
+      cuentas: _cuentas,
+      indiceActivo: _cuentaActivaIndice,
+      contador: _contadorCuentas,
+    ).catchError((_) {});
+  }
+
+  /// Recupera las cuentas que quedaron abiertas si el turno se interrumpió.
+  Future<void> _restaurarCuentas() async {
+    final guardadas = await cargarCuentas(widget.turnoId);
+    if (guardadas == null || !mounted) return;
+    // Si ya se empezó a vender en esta pantalla no se pisa lo nuevo.
+    if (_cuentas.length != 1 || _cuentas.first.carrito.isNotEmpty) return;
+
+    setState(() {
+      _cuentas
+        ..clear()
+        ..addAll(guardadas.cuentas);
+      _cuentaActivaIndice = guardadas.indiceActivo;
+      _contadorCuentas = guardadas.contador;
+      _refrescarPendiente = true;
+    });
+    _refrescarConCatalogo();
+
+    final productos = guardadas.cuentas.fold<int>(
+      0,
+      (suma, c) => suma + c.carrito.length,
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Se recuperaron ${guardadas.cuentas.length} cuenta(s) abiertas '
+          'con $productos producto(s).',
+        ),
+      ),
+    );
+  }
+
+  void _refrescarConCatalogo() {
+    if (!_refrescarPendiente || _catalogo.isEmpty || !mounted) return;
+    setState(() {
+      for (final cuenta in _cuentas) {
+        for (var i = 0; i < cuenta.carrito.length; i++) {
+          final fresco = _catalogo[cuenta.carrito[i].producto.id];
+          if (fresco == null) continue;
+          cuenta.carrito[i] = ItemCarrito(
+            producto: fresco,
+            cantidad: cuenta.carrito[i].cantidad,
+          );
+        }
+      }
+      _ultimoItem = null;
+      _refrescarPendiente = false;
+    });
+    _persistir();
   }
 
   int _stockDe(Producto producto) =>
@@ -110,6 +180,7 @@ class _VentaScreenState extends State<VentaScreen> {
       _cuentaActivaIndice = indice;
       _ultimoItem = null;
     });
+    _persistir();
     _codigoFocus.requestFocus();
   }
 
@@ -125,6 +196,7 @@ class _VentaScreenState extends State<VentaScreen> {
       _cuentaActivaIndice = _cuentas.length - 1;
       _ultimoItem = null;
     });
+    _persistir();
     _codigoFocus.requestFocus();
   }
 
@@ -168,103 +240,171 @@ class _VentaScreenState extends State<VentaScreen> {
       }
       _ultimoItem = null;
     });
+    _persistir();
   }
 
-  Future<void> _buscarYAgregar(String codigo) async {
-    final codigoLimpio = codigo.trim();
-    if (codigoLimpio.isEmpty) return;
+  /// Lo que se escribió en el campo, si no es un código de barras del
+  /// catálogo: sirve para sugerir productos por nombre.
+  List<Producto> get _sugerencias {
+    final texto = _codigoController.text.trim();
+    if (texto.length < 2 || _productoEnCatalogo(texto) != null) return const [];
+    return buscarProductosPorNombre(_catalogo.values, texto, maximo: 6);
+  }
+
+  /// Enter en el campo: primero como código de barras (lo que hace el
+  /// escáner) y, si no es un código, como nombre (agrega el primer resultado,
+  /// el mismo que se ve primero en las sugerencias).
+  Future<void> _buscarYAgregar(String texto) async {
+    final entrada = texto.trim();
+    if (entrada.isEmpty) return;
 
     setState(() => _buscando = true);
     try {
-      final enCatalogo = _productoEnCatalogo(codigoLimpio);
-      final Producto producto;
-      if (enCatalogo != null) {
-        producto = enCatalogo;
-      } else {
+      var producto = _productoEnCatalogo(entrada);
+      if (producto == null && entrada.contains(RegExp(r'[A-Za-zÁ-ú]'))) {
+        producto = buscarProductosPorNombre(
+          _catalogo.values,
+          entrada,
+          maximo: 1,
+        ).firstOrNull;
+      }
+      if (producto == null) {
         final resultado = await FirebaseFirestore.instance
             .collection('productos')
-            .where('codigoBarras', isEqualTo: codigoLimpio)
+            .where('codigoBarras', isEqualTo: entrada)
             .limit(1)
             .get();
-
-        if (resultado.docs.isEmpty) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'No se encontró ningún producto con el código $codigoLimpio',
-                ),
-              ),
-            );
-          }
-          return;
+        if (resultado.docs.isNotEmpty) {
+          producto = Producto.fromDoc(resultado.docs.first);
         }
-        producto = Producto.fromDoc(resultado.docs.first);
       }
 
-      final indice = _carrito.indexWhere(
-        (item) => item.producto.id == producto.id,
-      );
-      final cantidadEnCarrito = indice >= 0 ? _carrito[indice].cantidad : 0;
-
-      final stockDisponible = _stockDe(producto);
-      if (producto.controlaStock && cantidadEnCarrito + 1 > stockDisponible) {
+      if (producto == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(
-                'Sin stock suficiente de ${producto.nombre}. '
-                'Disponible: $stockDisponible',
-              ),
+              content: Text('No se encontró ningún producto con "$entrada"'),
             ),
           );
         }
         return;
       }
 
-      setState(() {
-        if (indice >= 0) {
-          _carrito[indice].cantidad++;
-          _ultimoItem = _carrito[indice];
-        } else {
-          final nuevoItem = ItemCarrito(producto: producto);
-          _carrito.add(nuevoItem);
-          _ultimoItem = nuevoItem;
-        }
-      });
+      await _agregarProducto(producto);
     } finally {
       _codigoController.clear();
-      setState(() => _buscando = false);
+      if (mounted) setState(() => _buscando = false);
       _codigoFocus.requestFocus();
     }
   }
 
-  void _cambiarCantidad(int indice, int delta) {
-    final item = _carrito[indice];
-    final stockDisponible = _stockDe(item.producto);
+  Future<void> _elegirSugerencia(Producto producto) async {
+    _codigoController.clear();
+    setState(() {});
+    await _agregarProducto(producto);
+    if (mounted) _codigoFocus.requestFocus();
+  }
 
-    if (delta > 0 &&
-        item.producto.controlaStock &&
-        item.cantidad + 1 > stockDisponible) {
+  /// Suma una unidad de [producto] al carrito. Si no alcanza el stock,
+  /// ofrece agregarle stock ahí mismo en vez de obligar a salir a buscarlo.
+  Future<void> _agregarProducto(Producto producto) async {
+    var indice = _carrito.indexWhere((item) => item.producto.id == producto.id);
+    final cantidadEnCarrito = indice >= 0 ? _carrito[indice].cantidad : 0;
+
+    if (producto.controlaStock && cantidadEnCarrito + 1 > _stockDe(producto)) {
+      final alcanza = await _ofrecerAgregarStock(
+        producto,
+        necesario: cantidadEnCarrito + 1,
+      );
+      if (!alcanza || !mounted) return;
+      // El carrito pudo cambiar mientras estaba abierto el diálogo.
+      indice = _carrito.indexWhere((item) => item.producto.id == producto.id);
+    }
+
+    setState(() {
+      if (indice >= 0) {
+        _carrito[indice].cantidad++;
+        _ultimoItem = _carrito[indice];
+      } else {
+        final nuevoItem = ItemCarrito(producto: producto);
+        _carrito.add(nuevoItem);
+        _ultimoItem = nuevoItem;
+      }
+    });
+    _persistir();
+  }
+
+  /// Pregunta si se quiere agregar stock a un producto que no alcanza para lo
+  /// que se está vendiendo. Devuelve `true` si con lo agregado ya alcanza.
+  Future<bool> _ofrecerAgregarStock(
+    Producto producto, {
+    required int necesario,
+  }) async {
+    final disponible = _stockDe(producto);
+    final agregado = await showDialog<int>(
+      context: context,
+      builder: (context) => DialogoAjusteStock(
+        sucursalId: widget.sucursalId,
+        usuarioNombre: widget.vendedorNombre,
+        producto: producto,
+        aviso: disponible <= 0
+            ? '"${producto.nombre}" no tiene stock en esta sucursal. '
+                  '¿Quieres agregarle?'
+            : 'De "${producto.nombre}" solo quedan $disponible y hacen falta '
+                  '$necesario. ¿Quieres agregarle stock?',
+      ),
+    );
+    if (agregado == null || !mounted) return false;
+
+    if (disponible + agregado < necesario) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Sin stock suficiente de ${item.producto.nombre}. '
-            'Disponible: $stockDisponible',
+            'Con lo que agregaste aún no alcanza para ${producto.nombre}. '
+            'Disponible: ${disponible + agregado}',
           ),
         ),
       );
-      return;
+      return false;
     }
+    return true;
+  }
+
+  Future<void> _cambiarCantidad(int indice, int delta) async {
+    final item = _carrito[indice];
+
+    if (delta > 0 &&
+        item.producto.controlaStock &&
+        item.cantidad + 1 > _stockDe(item.producto)) {
+      final alcanza = await _ofrecerAgregarStock(
+        item.producto,
+        necesario: item.cantidad + 1,
+      );
+      if (!alcanza || !mounted) return;
+    }
+
+    // El carrito pudo cambiar mientras estaba abierto el diálogo.
+    final actual = _carrito.indexOf(item);
+    if (actual == -1) return;
 
     setState(() {
       final nuevaCantidad = item.cantidad + delta;
       if (nuevaCantidad <= 0) {
-        _carrito.removeAt(indice);
+        _carrito.removeAt(actual);
       } else {
         item.cantidad = nuevaCantidad;
       }
     });
+    _persistir();
+  }
+
+  void _quitarDelCarrito(ItemCarrito item) {
+    setState(() {
+      _carrito.remove(item);
+      if (_ultimoItem == item) _ultimoItem = null;
+    });
+    _persistir();
+    _codigoFocus.requestFocus();
   }
 
   void _sumarUltimoProducto() {
@@ -486,34 +626,46 @@ class _VentaScreenState extends State<VentaScreen> {
 
     if (!mounted) return;
 
-    await showDialog(
-      context: context,
-      builder: (context) => _DialogoAutoCierre(
-        child: AlertDialog(
-          title: const Text('Venta registrada'),
-          content: Text(
-            switch (resultado.metodo) {
-                  MetodoPago.tarjeta =>
-                    'Pago con tarjeta por ${formatearPesos(_total)}.',
-                  MetodoPago.credito =>
-                    'Venta a crédito de ${resultado.cliente?.nombre}: '
-                        '${formatearPesos(_total)}.',
-                  MetodoPago.efectivo || MetodoPago.mixto =>
-                    'Vuelto a entregar: ${formatearPesos(resultado.vuelto)}',
-                } +
-                (confirmada
-                    ? ''
-                    : '\nSin conexión: se enviará sola al volver internet.'),
+    // Aviso que no interrumpe: la venta sigue sin apretar "aceptar". El vuelto
+    // queda a la vista unos segundos para entregarlo.
+    final detalle =
+        switch (resultado.metodo) {
+          MetodoPago.tarjeta =>
+            'Pago con tarjeta por ${formatearPesos(_total)}',
+          MetodoPago.credito =>
+            'A crédito de ${resultado.cliente?.nombre}: ${formatearPesos(_total)}',
+          MetodoPago.efectivo ||
+          MetodoPago.mixto => 'Vuelto: ${formatearPesos(resultado.vuelto)}',
+        } +
+        (confirmada
+            ? ''
+            : '\nSin conexión: se enviará sola al volver internet.');
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 6),
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Marca.exito),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Venta registrada',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    Text(detalle),
+                  ],
+                ),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Listo'),
-            ),
-          ],
         ),
-      ),
-    );
+      );
 
     setState(() {
       if (_cuentas.length > 1) {
@@ -527,9 +679,11 @@ class _VentaScreenState extends State<VentaScreen> {
       }
       _ultimoItem = null;
     });
+    _persistir();
+    _codigoFocus.requestFocus();
   }
 
-  void _mostrarHistorial() {
+  void _mostrarHistorial({bool paraCambio = false}) {
     showDialog(
       context: context,
       builder: (context) => Dialog(
@@ -541,8 +695,12 @@ class _VentaScreenState extends State<VentaScreen> {
           child: HistorialVentasScreen(
             turnoId: widget.turnoId,
             sucursalId: widget.sucursalId,
+            vendedorNombre: widget.vendedorNombre,
             esAdmin: widget.esAdmin,
             mostrarAppBar: false,
+            ayuda: paraCambio
+                ? 'Toca la venta y luego "Cambiar producto".'
+                : null,
           ),
         ),
       ),
@@ -637,7 +795,7 @@ class _VentaScreenState extends State<VentaScreen> {
                         focusNode: _codigoFocus,
                         autofocus: true,
                         decoration: InputDecoration(
-                          labelText: 'Escanea o ingresa el código de barras',
+                          labelText: 'Escanea el código o busca por nombre',
                           border: const OutlineInputBorder(),
                           prefixIcon: const Icon(Icons.qr_code_scanner),
                           suffixIcon: _buscando
@@ -653,9 +811,19 @@ class _VentaScreenState extends State<VentaScreen> {
                                 )
                               : null,
                         ),
+                        onChanged: (_) => setState(() {}),
                         onSubmitted: _buscarYAgregar,
                       ),
                     ),
+                    if (_sugerencias.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                        child: _ListaSugerencias(
+                          productos: _sugerencias,
+                          stockDe: _stockDe,
+                          onElegir: _elegirSugerencia,
+                        ),
+                      ),
                     Expanded(
                       child: _carrito.isEmpty
                           ? const Center(
@@ -675,81 +843,14 @@ class _VentaScreenState extends State<VentaScreen> {
                               itemCount: _carrito.length,
                               itemBuilder: (context, indice) {
                                 final item = _carrito[indice];
-                                return Card(
-                                  margin: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 6,
-                                  ),
-                                  child: ListTile(
-                                    leading: IconButton(
-                                      icon: const Icon(Icons.delete_outline),
-                                      onPressed: () => setState(
-                                        () => _carrito.removeAt(indice),
-                                      ),
-                                    ),
-                                    title: Text(item.producto.nombre),
-                                    subtitle: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Text(
-                                          item.producto.tienePromo
-                                              ? 'Promo: ${item.producto.promoCantidad} x '
-                                                    '${formatearPesos(item.producto.promoPrecioPack)} · '
-                                                    '${formatearPesos(item.producto.precio)} c/u'
-                                              : '${formatearPesos(item.producto.precio)} c/u',
-                                        ),
-                                        if (item.producto.controlaStock)
-                                          Text(
-                                            'Quedan ${_stockDe(item.producto) - item.cantidad} disponibles',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              color:
-                                                  _stockDe(item.producto) -
-                                                          item.cantidad <=
-                                                      0
-                                                  ? Marca.peligro
-                                                  : Marca.textoSuave,
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                    trailing: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        IconButton(
-                                          icon: const Icon(
-                                            Icons.remove_circle_outline,
-                                          ),
-                                          onPressed: () =>
-                                              _cambiarCantidad(indice, -1),
-                                        ),
-                                        Text(
-                                          '${item.cantidad}',
-                                          style: const TextStyle(fontSize: 16),
-                                        ),
-                                        IconButton(
-                                          icon: const Icon(
-                                            Icons.add_circle_outline,
-                                          ),
-                                          onPressed: () =>
-                                              _cambiarCantidad(indice, 1),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        SizedBox(
-                                          width: 90,
-                                          child: Text(
-                                            formatearPesos(item.subtotal),
-                                            textAlign: TextAlign.right,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
+                                return _FilaCarrito(
+                                  item: item,
+                                  stockRestante: item.producto.controlaStock
+                                      ? _stockDe(item.producto) - item.cantidad
+                                      : null,
+                                  onMenos: () => _cambiarCantidad(indice, -1),
+                                  onMas: () => _cambiarCantidad(indice, 1),
+                                  onQuitar: () => _quitarDelCarrito(item),
                                 );
                               },
                             ),
@@ -832,6 +933,15 @@ class _VentaScreenState extends State<VentaScreen> {
                       ),
                     ),
                     const Spacer(),
+                    FilledButton.tonalIcon(
+                      onPressed: () => _mostrarHistorial(paraCambio: true),
+                      icon: const Icon(Icons.swap_horiz),
+                      label: const Text('Cambiar un producto'),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     OutlinedButton.icon(
                       onPressed: _mostrarHistorial,
                       icon: const Icon(Icons.history),
@@ -940,24 +1050,209 @@ class _PestanaCuenta extends StatelessWidget {
   }
 }
 
-class _DialogoAutoCierre extends StatefulWidget {
-  final Widget child;
+/// Resultados de buscar por nombre. Tocar uno lo agrega a la venta; los que
+/// no tienen stock avisan y ofrecen agregarlo.
+class _ListaSugerencias extends StatelessWidget {
+  final List<Producto> productos;
+  final int Function(Producto) stockDe;
+  final ValueChanged<Producto> onElegir;
 
-  const _DialogoAutoCierre({required this.child});
+  const _ListaSugerencias({
+    required this.productos,
+    required this.stockDe,
+    required this.onElegir,
+  });
 
   @override
-  State<_DialogoAutoCierre> createState() => _DialogoAutoCierreState();
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Marca.superficieAlta,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Marca.dorado.withValues(alpha: 0.35)),
+        boxShadow: Marca.sombraSuave,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < productos.length; i++) ...[
+              if (i > 0) const Divider(height: 1),
+              Builder(
+                builder: (context) {
+                  final producto = productos[i];
+                  final stock = stockDe(producto);
+                  final sinStock = producto.controlaStock && stock <= 0;
+                  return InkWell(
+                    onTap: () => onElegir(producto),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              producto.nombre,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            formatearPesos(producto.precio),
+                            style: const TextStyle(
+                              color: Marca.textoSobreOscuro,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          if (producto.controlaStock)
+                            Text(
+                              sinStock ? 'Sin stock' : 'Stock: $stock',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: sinStock
+                                    ? Marca.peligro
+                                    : stock <= 5
+                                    ? Marca.alerta
+                                    : Marca.textoSuave,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-class _DialogoAutoCierreState extends State<_DialogoAutoCierre> {
-  @override
-  void initState() {
-    super.initState();
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) Navigator.of(context).pop();
-    });
-  }
+/// Un producto del carrito: cantidad con − y +, subtotal y un botón claro
+/// para quitarlo entero.
+class _FilaCarrito extends StatelessWidget {
+  final ItemCarrito item;
+
+  /// Unidades que quedarían en stock después de esta venta (null si el
+  /// producto no controla stock).
+  final int? stockRestante;
+  final VoidCallback onMenos;
+  final VoidCallback onMas;
+  final VoidCallback onQuitar;
+
+  const _FilaCarrito({
+    required this.item,
+    required this.stockRestante,
+    required this.onMenos,
+    required this.onMas,
+    required this.onQuitar,
+  });
 
   @override
-  Widget build(BuildContext context) => widget.child;
+  Widget build(BuildContext context) {
+    final producto = item.producto;
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    producto.nombre,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  Text(
+                    producto.tienePromo
+                        ? 'Promo: ${producto.promoCantidad} x '
+                              '${formatearPesos(producto.promoPrecioPack)} · '
+                              '${formatearPesos(producto.precio)} c/u'
+                        : '${formatearPesos(producto.precio)} c/u',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Marca.textoSuave,
+                    ),
+                  ),
+                  if (stockRestante != null)
+                    Text(
+                      'Quedan $stockRestante disponibles',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: stockRestante! <= 0
+                            ? Marca.peligro
+                            : Marca.textoSuave,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Container(
+              decoration: BoxDecoration(
+                color: Marca.carbon,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: Marca.borde),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: 'Quitar una unidad',
+                    icon: const Icon(Icons.remove),
+                    onPressed: onMenos,
+                  ),
+                  SizedBox(
+                    width: 28,
+                    child: Text(
+                      '${item.cantidad}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Agregar una unidad',
+                    icon: const Icon(Icons.add),
+                    onPressed: onMas,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            SizedBox(
+              width: 86,
+              child: Text(
+                formatearPesos(item.subtotal),
+                textAlign: TextAlign.right,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+            const SizedBox(width: 4),
+            IconButton(
+              tooltip: 'Quitar del carrito',
+              onPressed: onQuitar,
+              style: IconButton.styleFrom(
+                foregroundColor: Marca.peligro,
+                backgroundColor: Marca.peligro.withValues(alpha: 0.12),
+              ),
+              icon: const Icon(Icons.delete_outline),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../admin/clientes_screen.dart';
-import '../admin/home_admin.dart';
 import '../admin/productos_screen.dart';
-import '../users/home_vendedor.dart';
 import 'cierre_turno_screen.dart';
 import 'venta_screen.dart';
 import '../theme/marca.dart';
@@ -41,8 +39,9 @@ class _PosScreenState extends State<PosScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Cerrar sesión'),
         content: const Text(
-          'Tu turno sigue abierto y cualquier carrito sin cobrar se '
-          'perderá. ¿Cerrar sesión igual?',
+          'Tu turno sigue abierto: al volver a entrar podrás continuarlo, '
+          'con las cuentas que tenías abiertas en este equipo. ¿Cerrar '
+          'sesión?',
         ),
         actions: [
           TextButton(
@@ -57,6 +56,10 @@ class _PosScreenState extends State<PosScreen> {
       ),
     );
     if (confirmado == true) {
+      // Primero se vuelve a la ruta inicial: al cerrar la sesión ahí se
+      // muestra el login. Si se dejara esta pantalla encima, seguiría
+      // visible sin sesión.
+      if (mounted) Navigator.of(context).popUntil((ruta) => ruta.isFirst);
       await FirebaseAuth.instance.signOut();
     }
   }
@@ -200,9 +203,6 @@ class _PosScreenState extends State<PosScreen> {
                     vendedorNombre: widget.vendedorNombre,
                     montoInicial: widget.montoInicial,
                     mostrarAppBar: false,
-                    alCerrar: () => widget.esAdmin
-                        ? HomeAdmin(nombre: widget.vendedorNombre)
-                        : HomeVendedor(nombre: widget.vendedorNombre),
                   ),
                 ],
               ),

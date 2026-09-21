@@ -119,8 +119,13 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly([
           'fecha', 'turnoId', 'sucursalId', 'total', 'metodoPago', 'vuelto',
           'montoEfectivo', 'vendedorUid', 'vendedorNombre', 'clienteId',
-          'clienteNombre', 'items'
+          'clienteNombre', 'items', 'esCambio', 'ventaOriginalId'
         ])
+        // Un cambio de producto es un registro nuevo que apunta a su venta
+        // original; solo el cambio lleva esos dos campos.
+        && (!('esCambio' in request.resource.data)
+            || (request.resource.data.esCambio == true
+                && request.resource.data.ventaOriginalId is string))
         && request.resource.data.vendedorUid == request.auth.uid
         && request.resource.data.fecha == request.time
         && get(/databases/$(database)/documents/turnos/$(request.resource.data.turnoId)).data.vendedorUid == request.auth.uid
@@ -131,7 +136,8 @@ service cloud.firestore {
 
       // Un vendedor solo puede anular su propia venta, una vez, y mientras
       // su turno siga abierto: nunca cambiar montos, productos ni método de
-      // pago. Corregir una venta (cambiar producto) es cosa del admin.
+      // pago. Un cambio de producto no edita la venta: se registra aparte
+      // (ver "create") y el original queda intacto.
       allow update: if esAdmin()
         || (esPersonal()
             && resource.data.vendedorUid == request.auth.uid

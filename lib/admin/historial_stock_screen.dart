@@ -4,9 +4,15 @@ import '../utils/movimientos_stock.dart';
 import '../theme/marca.dart';
 
 class HistorialStockScreen extends StatelessWidget {
-  final String sucursalId;
+  /// Sin sucursal se muestran los movimientos de todas.
+  final String? sucursalId;
+  final Map<String, String> nombresSucursal;
 
-  const HistorialStockScreen({super.key, required this.sucursalId});
+  const HistorialStockScreen({
+    super.key,
+    this.sucursalId,
+    this.nombresSucursal = const {},
+  });
 
   String _formatearFecha(DateTime fecha) {
     String dos(int n) => n.toString().padLeft(2, '0');
@@ -19,10 +25,14 @@ class HistorialStockScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Historial de stock')),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance
-            .collection('movimientosStock')
-            .where('sucursalId', isEqualTo: sucursalId)
-            .snapshots(),
+        stream: sucursalId == null
+            ? FirebaseFirestore.instance
+                  .collection('movimientosStock')
+                  .snapshots()
+            : FirebaseFirestore.instance
+                  .collection('movimientosStock')
+                  .where('sucursalId', isEqualTo: sucursalId)
+                  .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
             return Center(child: Text('No se pudo cargar: ${snapshot.error}'));
@@ -40,9 +50,7 @@ class HistorialStockScreen extends StatelessWidget {
             ..sort((a, b) => fechaDe(b).compareTo(fechaDe(a)));
 
           if (movimientos.isEmpty) {
-            return const Center(
-              child: Text('Aún no hay movimientos de stock en esta sucursal'),
-            );
+            return const Center(child: Text('Aún no hay movimientos de stock'));
           }
 
           return ListView.separated(
@@ -72,6 +80,7 @@ class HistorialStockScreen extends StatelessWidget {
                 title: Text('${datos['productoNombre']}'),
                 subtitle: Text(
                   '${tipo.etiqueta} · ${datos['usuarioNombre']} · '
+                  '${sucursalId == null ? '${nombresSucursal[datos['sucursalId']] ?? 'Sucursal'} · ' : ''}'
                   '${_formatearFecha(fechaDe(datos))}',
                 ),
                 trailing: Text(

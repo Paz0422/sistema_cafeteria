@@ -66,8 +66,11 @@ Future<void> _abrirDialogoPago(WidgetTester tester) async {
           builder: (context) => ElevatedButton(
             onPressed: () => showDialog(
               context: context,
-              builder: (_) =>
-                  const DialogoPago(total: 12500, grupoClientesId: 'grupo'),
+              builder: (_) => DialogoPago(
+                total: 12500,
+                grupoClientesId: 'grupo',
+                elegirCliente: (_) async => null,
+              ),
             ),
             child: const Text('abrir'),
           ),

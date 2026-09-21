@@ -5,6 +5,7 @@ import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 
 import '../theme/marca.dart';
+import '../utils/formato.dart';
 import '../utils/reporte_turno.dart';
 import '../widgets/premium.dart';
 
@@ -36,8 +37,31 @@ class _ReporteTurnoScreenState extends State<ReporteTurnoScreen> {
   }
 
   Future<void> _guardarPdf() async {
-    final bytes = await _pdf(PdfPageFormat.a4);
-    await Printing.sharePdf(bytes: bytes, filename: _nombreArchivo);
+    try {
+      final bytes = await _pdf(PdfPageFormat.a4);
+      await Printing.sharePdf(bytes: bytes, filename: _nombreArchivo);
+    } catch (e) {
+      _avisarError('No se pudo guardar el PDF: $e');
+    }
+  }
+
+  Future<void> _imprimir() async {
+    try {
+      await Printing.layoutPdf(
+        onLayout: _pdf,
+        name: _nombreArchivo,
+        format: PdfPageFormat.a4,
+      );
+    } catch (e) {
+      _avisarError('No se pudo imprimir: $e');
+    }
+  }
+
+  void _avisarError(String mensaje) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(mensaje)));
   }
 
   /// Vuelve al inicio (el panel del vendedor o del admin), que es la primera
@@ -108,16 +132,10 @@ class _ReporteTurnoScreenState extends State<ReporteTurnoScreen> {
                     color: Colors.transparent,
                   ),
                   loadingWidget: const CircularProgressIndicator(),
-                  onError: (context, error) => Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text(
-                        'No se pudo generar el reporte.\n$error',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Marca.peligro),
-                      ),
-                    ),
-                  ),
+                  // Si la vista previa no funciona (por ejemplo, sin internet en
+                  // la web), se muestran las cifras en pantalla: el turno ya
+                  // está cerrado y el reporte se puede imprimir igual.
+                  onError: (context, error) => _ResumenEnPantalla(datos: d),
                 ),
               ),
               SafeArea(
@@ -137,11 +155,7 @@ class _ReporteTurnoScreenState extends State<ReporteTurnoScreen> {
                       Expanded(
                         flex: 2,
                         child: FilledButton.icon(
-                          onPressed: () => Printing.layoutPdf(
-                            onLayout: _pdf,
-                            name: _nombreArchivo,
-                            format: PdfPageFormat.a4,
-                          ),
+                          onPressed: _imprimir,
                           icon: const Icon(Icons.print_outlined),
                           label: const Text('Imprimir reporte'),
                         ),
@@ -159,6 +173,92 @@ class _ReporteTurnoScreenState extends State<ReporteTurnoScreen> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Las cifras del cierre en pantalla, para cuando no se puede mostrar la vista
+/// previa del PDF.
+class _ResumenEnPantalla extends StatelessWidget {
+  final DatosReporteTurno datos;
+
+  const _ResumenEnPantalla({required this.datos});
+
+  @override
+  Widget build(BuildContext context) {
+    final r = datos.resumen;
+    final dif = datos.diferencia;
+
+    Widget fila(String etiqueta, String valor, {bool fuerte = false}) =>
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 5),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                etiqueta,
+                style: TextStyle(
+                  fontWeight: fuerte ? FontWeight.w700 : FontWeight.w400,
+                ),
+              ),
+              Text(valor, style: const TextStyle(fontWeight: FontWeight.w700)),
+            ],
+          ),
+        );
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: Text(
+                'No se pudo mostrar la vista previa del reporte en este equipo. '
+                'Aquí está el resumen; "Imprimir reporte" y "Guardar PDF" '
+                'siguen disponibles.',
+                style: TextStyle(color: Marca.textoSuave, fontSize: 12),
+              ),
+            ),
+            TarjetaFusion(
+              child: Column(
+                children: [
+                  fila('Ventas', '${r.cantidadVentas}'),
+                  fila(
+                    'Vendido en efectivo',
+                    formatearPesos(r.vendidoEfectivo),
+                  ),
+                  fila('Vendido con tarjeta', formatearPesos(r.vendidoTarjeta)),
+                  fila('Vendido a crédito', formatearPesos(r.vendidoCredito)),
+                  const Divider(height: 20),
+                  fila('Total vendido', formatearPesos(r.total), fuerte: true),
+                  const Divider(height: 20),
+                  fila('Monto inicial', formatearPesos(datos.montoInicial)),
+                  fila(
+                    'Efectivo esperado',
+                    formatearPesos(datos.efectivoEsperado),
+                  ),
+                  fila('Total contado', formatearPesos(datos.totalContado)),
+                  const SizedBox(height: 8),
+                  Text(
+                    dif == 0
+                        ? 'Caja cuadrada'
+                        : dif > 0
+                        ? 'Sobrante: ${formatearPesos(dif)}'
+                        : 'Faltante: ${formatearPesos(-dif)}',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: dif == 0 ? Marca.exito : Marca.peligro,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

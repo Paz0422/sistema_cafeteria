@@ -205,13 +205,18 @@ class _SelectorSucursalAperturaState extends State<SelectorSucursalApertura> {
           builder: (context, turnosSnap) {
             // Si no se pueden consultar los turnos, se sigue como si no
             // hubiera ninguno abierto: nunca debe impedir abrir uno.
-            final abiertos = (turnosSnap.data?.docs ?? []).toList()
-              ..sort((a, b) {
-                DateTime f(QueryDocumentSnapshot<Map<String, dynamic>> d) =>
-                    (d.data()['fechaApertura'] as Timestamp?)?.toDate() ??
-                    DateTime.now();
-                return f(b).compareTo(f(a));
-              });
+            // Solo turnos de la sesión actual, aunque llegara otro por error.
+            final miUid = FirebaseAuth.instance.currentUser?.uid;
+            final abiertos =
+                (turnosSnap.data?.docs ?? [])
+                    .where((d) => d.data()['vendedorUid'] == miUid)
+                    .toList()
+                  ..sort((a, b) {
+                    DateTime f(QueryDocumentSnapshot<Map<String, dynamic>> d) =>
+                        (d.data()['fechaApertura'] as Timestamp?)?.toDate() ??
+                        DateTime.now();
+                    return f(b).compareTo(f(a));
+                  });
 
             return Center(
               child: SingleChildScrollView(
@@ -312,6 +317,7 @@ class _TarjetaTurnoAbierto extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               '$nombreSucursal · desde $desde\n'
+              'Abierto por ${datos['vendedorNombre'] ?? 'este usuario'}\n'
               'Caja inicial: ${formatearPesos(monto)}',
               style: const TextStyle(color: Marca.textoSobreOscuro),
             ),

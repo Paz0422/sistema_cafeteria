@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'cambiar_clave_screen.dart';
 import 'login_screen.dart';
 import 'package:cafeteria_sistema/users/home_vendedor.dart';
 import 'package:cafeteria_sistema/admin/home_admin.dart';
@@ -55,6 +56,13 @@ class AuthGate extends StatelessWidget {
 
             final datos = doc.data()!;
             final nombre = datos['nombre'] as String? ?? '';
+
+            // Un admin le restableció la contraseña: antes de dejarla entrar
+            // tiene que elegir la suya.
+            if (datos['debeCambiarClave'] == true &&
+                ['admin', 'vendedor'].contains(datos['rol'])) {
+              return CambiarClaveScreen(uid: uid);
+            }
 
             return switch (datos['rol']) {
               'admin' => HomeAdmin(nombre: nombre),

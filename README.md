@@ -108,6 +108,30 @@ Las personas usan un **nombre de usuario**, no un correo. Internamente se
 convierte en `usuario@cafeteria.fusion` (constante `dominioInterno` en
 `lib/constants.dart`); ese dominio no necesita existir.
 
+### Si alguien olvida su contraseña
+
+No se usan correos, así que la recuperación la hace un admin:
+
+1. En **Usuarios**, el admin abre a la persona y toca **Restablecer contraseña**.
+2. La app muestra una contraseña temporal (una sola vez): el admin se la pasa.
+3. La persona entra con su usuario y esa contraseña, y el sistema le pide elegir
+   una nueva antes de dejarla pasar.
+
+Firebase no permite que una app cambie la contraseña de otra cuenta, así que el
+restablecimiento crea un acceso nuevo (`usuario+gN@cafeteria.fusion`) y le
+traspasa el perfil (nombre, usuario y rol). La generación vigente de cada
+usuario está en `accesos/{usuario}`, y el login la consulta antes de entrar.
+Consecuencias: el acceso anterior queda huérfano (sin perfil, no sirve para
+nada) y las ventas y turnos antiguos siguen guardados con el identificador
+anterior, así que el admin los ve en las estadísticas pero la persona ya no los
+ve en su historial. Un admin no puede restablecer su propia contraseña: si es el
+único admin y la olvida, hay que borrar su usuario en Authentication, volver a
+registrarlo y cambiar su `rol` a `admin` en Firestore.
+
+Estas reglas viven en `firestore.rules`: después de cambiarlas hay que
+publicarlas en Firebase (`firebase deploy --only firestore:rules` o pegándolas
+en la consola).
+
 ### Seguridad
 
 - El código de invitación se valida **en las reglas de Firestore**, no en la app.

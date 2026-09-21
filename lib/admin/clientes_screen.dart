@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/cliente.dart';
 import '../utils/formato.dart';
+import '../theme/marca.dart';
 
 class ClientesScreen extends StatelessWidget {
   final String grupoClientesId;
@@ -76,8 +77,8 @@ class ClientesScreen extends StatelessWidget {
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           color: cliente.deuda > 0
-                              ? Colors.red
-                              : Colors.green[700],
+                              ? Marca.peligro
+                              : Marca.exito,
                         ),
                       ),
                       onTap: () => _abrirDetalle(context, cliente),

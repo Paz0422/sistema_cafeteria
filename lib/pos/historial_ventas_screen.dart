@@ -5,6 +5,7 @@ import '../models/item_carrito.dart';
 import '../models/producto.dart';
 import '../utils/formato.dart';
 import 'seleccionar_producto_dialog.dart';
+import '../theme/marca.dart';
 
 class _StockInsuficienteCambio implements Exception {
   final String nombre;
@@ -121,7 +122,7 @@ class HistorialVentasScreen extends StatelessWidget {
                         '${fecha.minute.toString().padLeft(2, '0')}',
                   ?clienteNombre,
                 ].join(' · '),
-                style: cancelada ? TextStyle(color: Colors.red[700]) : null,
+                style: cancelada ? TextStyle(color: Marca.peligro) : null,
               ),
               children: [
                 ...items.map(
@@ -156,11 +157,11 @@ class HistorialVentasScreen extends StatelessWidget {
                           icon: const Icon(
                             Icons.cancel_outlined,
                             size: 18,
-                            color: Colors.red,
+                            color: Marca.peligro,
                           ),
                           label: const Text(
                             'Cancelar venta',
-                            style: TextStyle(color: Colors.red),
+                            style: TextStyle(color: Marca.peligro),
                           ),
                         ),
                       ],

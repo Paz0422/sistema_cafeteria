@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/sucursal.dart';
+import '../theme/marca.dart';
 
 class SucursalesScreen extends StatelessWidget {
   final bool mostrarAppBar;
@@ -247,7 +248,7 @@ class _DialogoSucursalState extends State<_DialogoSucursal> {
                 'Si un cliente compra fiado en una y en otra, misma ficha y '
                 'misma deuda. Útil para locales relacionados (ej: un kiosko '
                 'de eventos de la misma cafetería).',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
+                style: TextStyle(fontSize: 12, color: Marca.textoSuave),
               ),
             ),
           ],

@@ -19,21 +19,84 @@ class HomeAdmin extends StatefulWidget {
   State<HomeAdmin> createState() => _HomeAdminState();
 }
 
+/// Ancho bajo el cual el panel pasa a modo celular: el menú lateral se
+/// esconde en un cajón y el contenido usa todo el ancho.
+const _anchoCelular = 700.0;
+
+class _Seccion {
+  final String titulo;
+  final IconData icono;
+  final IconData iconoActivo;
+
+  const _Seccion(this.titulo, this.icono, this.iconoActivo);
+}
+
+const _secciones = [
+  _Seccion('Estadísticas', Icons.bar_chart_outlined, Icons.bar_chart),
+  _Seccion('Panel vendedor', Icons.point_of_sale_outlined, Icons.point_of_sale),
+  _Seccion('Productos', Icons.inventory_2_outlined, Icons.inventory_2),
+  _Seccion('Clientes', Icons.assignment_ind_outlined, Icons.assignment_ind),
+  _Seccion('Usuarios', Icons.people_outline, Icons.people),
+  _Seccion('Sucursales', Icons.storefront_outlined, Icons.storefront),
+];
+
 class _HomeAdminState extends State<HomeAdmin> {
   int _indice = 0;
 
   @override
   Widget build(BuildContext context) {
+    final celular = MediaQuery.sizeOf(context).width < _anchoCelular;
+    final contenido = _contenido();
+
+    final cerrarSesion = IconButton(
+      icon: const Icon(Icons.logout),
+      tooltip: 'Cerrar sesión',
+      onPressed: () => FirebaseAuth.instance.signOut(),
+    );
+
+    if (celular) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(_secciones[_indice].titulo),
+          actions: [cerrarSesion],
+        ),
+        drawer: NavigationDrawer(
+          selectedIndex: _indice,
+          onDestinationSelected: (indice) => setState(() => _indice = indice),
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(28, 24, 16, 12),
+              child: Row(
+                children: [
+                  const LogoFusion(tamano: 48),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      widget.nombre,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            for (final seccion in _secciones)
+              NavigationDrawerDestination(
+                icon: Icon(seccion.icono),
+                selectedIcon: Icon(seccion.iconoActivo),
+                label: Text(seccion.titulo),
+              ),
+          ],
+        ),
+        body: contenido,
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Text('Cafetería Fusión — Admin: ${widget.nombre}'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Cerrar sesión',
-            onPressed: () => FirebaseAuth.instance.signOut(),
-          ),
-        ],
+        actions: [cerrarSesion],
       ),
       body: Row(
         children: [
@@ -45,76 +108,54 @@ class _HomeAdminState extends State<HomeAdmin> {
               padding: EdgeInsets.only(top: 12, bottom: 16),
               child: LogoFusion(tamano: 56),
             ),
-            destinations: const [
-              NavigationRailDestination(
-                icon: Icon(Icons.bar_chart_outlined),
-                selectedIcon: Icon(Icons.bar_chart),
-                label: Text('Estadísticas'),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.point_of_sale_outlined),
-                selectedIcon: Icon(Icons.point_of_sale),
-                label: Text('Panel vendedor'),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.inventory_2_outlined),
-                selectedIcon: Icon(Icons.inventory_2),
-                label: Text('Productos'),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.assignment_ind_outlined),
-                selectedIcon: Icon(Icons.assignment_ind),
-                label: Text('Clientes'),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.people_outline),
-                selectedIcon: Icon(Icons.people),
-                label: Text('Usuarios'),
-              ),
-              NavigationRailDestination(
-                icon: Icon(Icons.storefront_outlined),
-                selectedIcon: Icon(Icons.storefront),
-                label: Text('Sucursales'),
-              ),
+            destinations: [
+              for (final seccion in _secciones)
+                NavigationRailDestination(
+                  icon: Icon(seccion.icono),
+                  selectedIcon: Icon(seccion.iconoActivo),
+                  label: Text(seccion.titulo),
+                ),
             ],
           ),
           const VerticalDivider(width: 1),
-          Expanded(
-            child: IndexedStack(
-              index: _indice,
-              children: [
-                const EstadisticasScreen(mostrarAppBar: false),
-                SelectorSucursalApertura(
-                  nombreVendedor: widget.nombre,
-                  esAdmin: true,
-                  descripcion:
-                      'Entra al punto de venta de una sucursal con permisos '
-                      'completos de administrador (puedes eliminar productos '
-                      'y bajar stock, cosas que un vendedor normal no puede).',
-                  textoBoton: 'Entrar como vendedor',
-                ),
-                _ConSucursalSeleccionada(
-                  builder: (sucursal) => ProductosScreen(
-                    sucursalId: sucursal.id,
-                    usuarioNombre: widget.nombre,
-                    esAdmin: true,
-                    mostrarAppBar: false,
-                  ),
-                ),
-                _ConSucursalSeleccionada(
-                  builder: (sucursal) => ClientesScreen(
-                    grupoClientesId: sucursal.grupoClientes,
-                    esAdmin: true,
-                    mostrarAppBar: false,
-                  ),
-                ),
-                const UsuariosScreen(mostrarAppBar: false),
-                const SucursalesScreen(mostrarAppBar: false),
-              ],
-            ),
-          ),
+          Expanded(child: contenido),
         ],
       ),
+    );
+  }
+
+  Widget _contenido() {
+    return IndexedStack(
+      index: _indice,
+      children: [
+        const EstadisticasScreen(mostrarAppBar: false),
+        SelectorSucursalApertura(
+          nombreVendedor: widget.nombre,
+          esAdmin: true,
+          descripcion:
+              'Entra al punto de venta de una sucursal con permisos '
+              'completos de administrador (puedes eliminar productos '
+              'y bajar stock, cosas que un vendedor normal no puede).',
+          textoBoton: 'Entrar como vendedor',
+        ),
+        _ConSucursalSeleccionada(
+          builder: (sucursal) => ProductosScreen(
+            sucursalId: sucursal.id,
+            usuarioNombre: widget.nombre,
+            esAdmin: true,
+            mostrarAppBar: false,
+          ),
+        ),
+        _ConSucursalSeleccionada(
+          builder: (sucursal) => ClientesScreen(
+            grupoClientesId: sucursal.grupoClientes,
+            esAdmin: true,
+            mostrarAppBar: false,
+          ),
+        ),
+        const UsuariosScreen(mostrarAppBar: false),
+        const SucursalesScreen(mostrarAppBar: false),
+      ],
     );
   }
 }

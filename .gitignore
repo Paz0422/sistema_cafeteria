@@ -63,3 +63,8 @@ android/key.properties
 **/google-services.json
 **/GoogleService-Info.plist
 lib/firebase_options.dart
+
+# Logo y mascota de la marca (no se suben al repositorio). Sin ellos la app
+# dibuja versiones simples; el .gitkeep mantiene la carpeta.
+assets/images/*
+!assets/images/.gitkeep

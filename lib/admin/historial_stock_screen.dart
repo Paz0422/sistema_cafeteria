@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../utils/movimientos_stock.dart';
+import '../theme/marca.dart';
 
 class HistorialStockScreen extends StatelessWidget {
   final String sucursalId;
@@ -57,17 +58,14 @@ class HistorialStockScreen extends StatelessWidget {
 
               return ListTile(
                 leading: CircleAvatar(
-                  backgroundColor: cantidad >= 0
-                      ? Colors.green.shade100
-                      : Colors.red.shade100,
+                  backgroundColor: (cantidad >= 0 ? Marca.exito : Marca.peligro)
+                      .withValues(alpha: 0.16),
                   child: Text(
                     cantidad > 0 ? '+$cantidad' : '$cantidad',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
-                      color: cantidad >= 0
-                          ? Colors.green.shade900
-                          : Colors.red.shade900,
+                      color: cantidad >= 0 ? Marca.exito : Marca.peligro,
                     ),
                   ),
                 ),

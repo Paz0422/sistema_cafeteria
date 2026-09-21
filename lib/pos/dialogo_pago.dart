@@ -3,6 +3,7 @@ import '../models/cliente.dart';
 import '../utils/calculo_pago.dart';
 import '../utils/formato.dart';
 import 'seleccionar_cliente_dialog.dart';
+import '../theme/marca.dart';
 
 class ResultadoPago {
   final MetodoPago metodo;
@@ -164,7 +165,7 @@ class _DialogoPagoState extends State<DialogoPago> {
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
                       'Esta venta supera el límite de crédito del cliente.',
-                      style: TextStyle(color: Colors.red[700]),
+                      style: TextStyle(color: Marca.peligro),
                     ),
                   ),
               ],
@@ -175,7 +176,7 @@ class _DialogoPagoState extends State<DialogoPago> {
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: Colors.green[700],
+                    color: Marca.exito,
                   ),
                 ),
               if (_metodo == MetodoPago.mixto)
@@ -186,7 +187,7 @@ class _DialogoPagoState extends State<DialogoPago> {
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: _puedeConfirmar ? Colors.green[700] : Colors.red,
+                    color: _puedeConfirmar ? Marca.exito : Marca.peligro,
                   ),
                 ),
             ],

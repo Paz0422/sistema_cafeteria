@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'constants.dart';
+import 'utils/acceso.dart';
 import 'widgets/pantalla_marca.dart';
+import 'theme/marca.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -26,7 +27,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _crearCuenta() async {
     setState(() => _error = null);
 
-    final usuario = _usuarioController.text.trim().toLowerCase();
+    final usuario = normalizarUsuario(_usuarioController.text);
     final nombre = _nombreController.text.trim();
     final codigo = _codigoController.text.trim();
 
@@ -41,12 +42,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     setState(() => _cargando = true);
 
-    final correoInterno = '$usuario$dominioInterno';
-
     try {
       final credencial = await FirebaseAuth.instance
           .createUserWithEmailAndPassword(
-            email: correoInterno,
+            email: correoDeAcceso(usuario),
             password: _passwordController.text,
           );
 
@@ -80,7 +79,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.check_circle, color: Colors.green, size: 64),
+                const Icon(Icons.check_circle, color: Marca.exito, size: 64),
                 const SizedBox(height: 16),
                 const Text(
                   '¡Cuenta creada con éxito!',
@@ -106,9 +105,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
     } on FirebaseAuthException catch (e) {
       setState(() {
-        _error = e.code == 'email-already-in-use'
-            ? 'Ese nombre de usuario ya está en uso'
-            : 'No se pudo crear la cuenta';
+        _error = switch (e.code) {
+          'email-already-in-use' => 'Ese nombre de usuario ya está en uso',
+          'weak-password' => 'La contraseña debe tener al menos 6 caracteres',
+          _ => 'No se pudo crear la cuenta',
+        };
       });
     } finally {
       setState(() => _cargando = false);
@@ -188,7 +189,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
           if (_error != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 16),
-              child: Text(_error!, style: const TextStyle(color: Colors.red)),
+              child: Text(
+                _error!,
+                style: const TextStyle(color: Marca.peligro),
+              ),
             ),
           SizedBox(
             height: 52,

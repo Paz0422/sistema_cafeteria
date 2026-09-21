@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../utils/escritura_offline.dart';
 import '../utils/formato.dart';
 import '../utils/resumen_ventas.dart';
+import '../theme/marca.dart';
 
 class CierreTurnoScreen extends StatefulWidget {
   final String turnoId;
@@ -124,7 +125,7 @@ class _CierreTurnoScreenState extends State<CierreTurnoScreen> {
                 child: Text(
                   'No se pudo calcular el resumen del turno:\n${snapshot.error}',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.red),
+                  style: const TextStyle(color: Marca.peligro),
                 ),
               ),
             );
@@ -197,7 +198,7 @@ class _CierreTurnoScreenState extends State<CierreTurnoScreen> {
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: diferencia == 0 ? Colors.green[700] : Colors.red,
+                      color: diferencia == 0 ? Marca.exito : Marca.peligro,
                     ),
                   ),
                   const SizedBox(height: 24),

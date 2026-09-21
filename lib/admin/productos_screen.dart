@@ -6,6 +6,7 @@ import '../utils/escritura_offline.dart';
 import '../utils/formato.dart';
 import '../utils/movimientos_stock.dart';
 import 'historial_stock_screen.dart';
+import '../theme/marca.dart';
 
 class ProductosScreen extends StatelessWidget {
   final String sucursalId;
@@ -54,7 +55,7 @@ class ProductosScreen extends StatelessWidget {
                       ),
                     ),
                     icon: const Icon(Icons.history),
-                    label: const Text('Historial de stock'),
+                    label: const Text('Historial'),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(
                         vertical: 16,
@@ -461,7 +462,7 @@ class _FormularioProductoState extends State<_FormularioProducto> {
                   'Déjalos vacíos si no hay promo. Ej: cada 3 por \$1.000 → '
                   'ese pack de 3 cuesta \$1.000 en total, sin importar el '
                   'precio unitario.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                  style: TextStyle(fontSize: 12, color: Marca.textoSuave),
                 ),
               ),
               const SizedBox(height: 8),

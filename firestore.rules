@@ -34,24 +34,56 @@ service cloud.firestore {
     match /usuarios/{uid} {
       allow read: if (estaAutenticado() && request.auth.uid == uid) || esAdmin();
 
-      // Auto-registro: solo el propio perfil, siempre como 'vendedor' (nunca
-      // 'admin'), con exactamente estos campos y el código de invitación
-      // correcto.
-      allow create: if estaAutenticado()
-        && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['nombre', 'usuario', 'rol', 'codigoInvitacion'])
-        && request.resource.data.rol == 'vendedor'
-        && request.resource.data.codigoInvitacion is string
-        && request.resource.data.codigoInvitacion ==
-           get(/databases/$(database)/documents/config/registro).data.codigo;
+      allow create:
+        // Auto-registro: solo el propio perfil, siempre como 'vendedor'
+        // (nunca 'admin'), con exactamente estos campos y el código de
+        // invitación correcto.
+        if (estaAutenticado()
+            && request.auth.uid == uid
+            && request.resource.data.keys().hasOnly(['nombre', 'usuario', 'rol', 'codigoInvitacion'])
+            && request.resource.data.rol == 'vendedor'
+            && request.resource.data.codigoInvitacion is string
+            && request.resource.data.codigoInvitacion ==
+               get(/databases/$(database)/documents/config/registro).data.codigo)
+        // Restablecimiento de contraseña: un admin crea el perfil de otra
+        // persona en su acceso nuevo, marcado para que elija su contraseña.
+        || (esAdmin()
+            && request.auth.uid != uid
+            && request.resource.data.keys().hasOnly(['nombre', 'usuario', 'rol', 'debeCambiarClave'])
+            && request.resource.data.rol in ['admin', 'vendedor', 'pendiente']
+            && request.resource.data.debeCambiarClave == true);
 
-      // Solo un admin cambia roles, solo el campo rol, solo a valores
-      // válidos, y no el suyo propio (evita quedarse sin admins).
-      allow update: if esAdmin()
-        && request.auth.uid != uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rol'])
-        && request.resource.data.rol in ['admin', 'vendedor', 'pendiente'];
+      allow update:
+        // Solo un admin cambia roles, solo el campo rol, solo a valores
+        // válidos, y no el suyo propio (evita quedarse sin admins).
+        if (esAdmin()
+            && request.auth.uid != uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rol'])
+            && request.resource.data.rol in ['admin', 'vendedor', 'pendiente'])
+        // Quien entró con una contraseña temporal solo puede bajar su propia
+        // marca de "debe cambiar la contraseña".
+        || (estaAutenticado()
+            && request.auth.uid == uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['debeCambiarClave'])
+            && request.resource.data.debeCambiarClave == false);
+
       allow delete: if esAdmin() && request.auth.uid != uid;
+    }
+
+    // Generación de acceso de cada usuario (accesos/{usuario} { gen: N }).
+    // El login la consulta antes de autenticarse, por eso se puede leer un
+    // documento suelto sin sesión (no se puede listar). Solo tiene un número:
+    // ningún dato personal. Solo un admin la escribe, al restablecer una
+    // contraseña.
+    match /accesos/{usuario} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if esAdmin()
+        && request.resource.data.keys().hasOnly(['gen'])
+        && request.resource.data.gen is int
+        && request.resource.data.gen >= 2
+        && request.resource.data.gen <= 99;
+      allow delete: if false;
     }
 
     match /sucursales/{sucursalId} {

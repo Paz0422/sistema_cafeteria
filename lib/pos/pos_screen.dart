@@ -8,6 +8,8 @@ import 'cierre_turno_screen.dart';
 import 'venta_screen.dart';
 import '../theme/marca.dart';
 
+enum _SalidaAdmin { cancelar, irACerrar, salir }
+
 class PosScreen extends StatefulWidget {
   final String turnoId;
   final String sucursalId;
@@ -59,13 +61,62 @@ class _PosScreenState extends State<PosScreen> {
     }
   }
 
+  /// Solo el admin puede salir del punto de venta sin cerrar el turno para
+  /// volver a su panel. Como no hay forma de retomar un turno abierto, se le
+  /// avisa y se le ofrece cerrarlo en vez de salir.
+  Future<void> _volverAlPanel() async {
+    final decision = await showDialog<_SalidaAdmin>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Volver al panel de admin'),
+        content: const Text(
+          'El turno sigue abierto y no se puede retomar desde el panel. '
+          'Si ya terminaste de vender, ciérralo antes de salir.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, _SalidaAdmin.cancelar),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, _SalidaAdmin.irACerrar),
+            child: const Text('Cerrar turno'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, _SalidaAdmin.salir),
+            child: const Text('Salir sin cerrar'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    switch (decision) {
+      case _SalidaAdmin.salir:
+        Navigator.of(context).pop();
+      case _SalidaAdmin.irACerrar:
+        setState(() => _seleccionado = 3);
+      case _SalidaAdmin.cancelar || null:
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
       canPop: false,
+      onPopInvokedWithResult: (volvio, _) {
+        if (!volvio && widget.esAdmin) _volverAlPanel();
+      },
       child: Scaffold(
         appBar: AppBar(
           automaticallyImplyLeading: false,
+          leading: widget.esAdmin
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  tooltip: 'Volver al panel de admin',
+                  onPressed: _volverAlPanel,
+                )
+              : null,
           title: const Text('Punto de venta'),
           actions: [
             IconButton(
@@ -180,39 +231,46 @@ class _AccionGrande extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       height: 92,
-      child: Card(
-        elevation: seleccionado ? 4 : 1,
-        shadowColor: Colors.black.withValues(alpha: 0.25),
-        color: seleccionado ? Marca.doradoSuave : Colors.white,
-        shape: RoundedRectangleBorder(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        decoration: BoxDecoration(
+          gradient: seleccionado
+              ? Marca.degradadoDorado
+              : Marca.degradadoTarjeta,
           borderRadius: BorderRadius.circular(18),
-          side: BorderSide(
-            color: seleccionado ? Marca.dorado : Marca.borde,
-            width: seleccionado ? 2 : 1,
+          border: Border.all(
+            color: seleccionado ? Marca.doradoClaro : Marca.borde,
           ),
+          boxShadow: seleccionado ? Marca.brilloDorado : null,
         ),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(18),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                icono,
-                size: 32,
-                color: seleccionado ? Marca.negro : Marca.cafe,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                etiqueta,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: seleccionado ? FontWeight.w700 : FontWeight.w500,
-                  color: Marca.negro,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(18),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icono,
+                  size: 30,
+                  color: seleccionado ? Marca.negro : Marca.dorado,
                 ),
-              ),
-            ],
+                const SizedBox(height: 8),
+                Text(
+                  etiqueta,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: seleccionado
+                        ? FontWeight.w700
+                        : FontWeight.w500,
+                    color: seleccionado ? Marca.negro : Marca.texto,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

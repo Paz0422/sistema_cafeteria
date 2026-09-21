@@ -13,6 +13,7 @@ import 'dialogo_pago.dart';
 import 'historial_ventas_screen.dart';
 import '../theme/marca.dart';
 import '../widgets/logo_fusion.dart';
+import '../widgets/premium.dart';
 
 class _StockInsuficiente implements Exception {
   final String nombre;
@@ -567,288 +568,300 @@ class _VentaScreenState extends State<VentaScreen> {
         appBar: widget.mostrarAppBar
             ? AppBar(title: const Text('Realizar venta'))
             : null,
-        body: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              flex: 3,
-              child: Column(
-                children: [
-                  if (!_enLinea)
+        body: FondoFusion(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 3,
+                child: Column(
+                  children: [
+                    if (!_enLinea)
+                      Container(
+                        width: double.infinity,
+                        color: Marca.avisoFondo,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.cloud_off,
+                              color: Marca.avisoTexto,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Sin conexión: puedes seguir vendiendo. Las '
+                                'ventas se guardan en este equipo y se envían '
+                                'solas al volver internet.',
+                                style: const TextStyle(color: Marca.avisoTexto),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    SizedBox(
+                      height: 58,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 6,
+                        ),
+                        children: [
+                          for (var i = 0; i < _cuentas.length; i++)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: _PestanaCuenta(
+                                cuenta: _cuentas[i],
+                                activa: i == _cuentaActivaIndice,
+                                onTap: () => _cambiarCuenta(i),
+                                onCerrar: () => _cerrarCuenta(i),
+                              ),
+                            ),
+                          ActionChip(
+                            avatar: const Icon(Icons.add, size: 18),
+                            label: const Text('Nueva cuenta'),
+                            onPressed: _nuevaCuenta,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: TextField(
+                        controller: _codigoController,
+                        focusNode: _codigoFocus,
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          labelText: 'Escanea o ingresa el código de barras',
+                          border: const OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.qr_code_scanner),
+                          suffixIcon: _buscando
+                              ? const Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  ),
+                                )
+                              : null,
+                        ),
+                        onSubmitted: _buscarYAgregar,
+                      ),
+                    ),
+                    Expanded(
+                      child: _carrito.isEmpty
+                          ? const Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  MascotaFusion(tamano: 150),
+                                  SizedBox(height: 12),
+                                  Text(
+                                    'Escanea un producto para comenzar',
+                                    style: TextStyle(color: Marca.textoSuave),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: _carrito.length,
+                              itemBuilder: (context, indice) {
+                                final item = _carrito[indice];
+                                return Card(
+                                  margin: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 6,
+                                  ),
+                                  child: ListTile(
+                                    leading: IconButton(
+                                      icon: const Icon(Icons.delete_outline),
+                                      onPressed: () => setState(
+                                        () => _carrito.removeAt(indice),
+                                      ),
+                                    ),
+                                    title: Text(item.producto.nombre),
+                                    subtitle: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          item.producto.tienePromo
+                                              ? 'Promo: ${item.producto.promoCantidad} x '
+                                                    '${formatearPesos(item.producto.promoPrecioPack)} · '
+                                                    '${formatearPesos(item.producto.precio)} c/u'
+                                              : '${formatearPesos(item.producto.precio)} c/u',
+                                        ),
+                                        if (item.producto.controlaStock)
+                                          Text(
+                                            'Quedan ${_stockDe(item.producto) - item.cantidad} disponibles',
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color:
+                                                  _stockDe(item.producto) -
+                                                          item.cantidad <=
+                                                      0
+                                                  ? Marca.peligro
+                                                  : Marca.textoSuave,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                    trailing: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.remove_circle_outline,
+                                          ),
+                                          onPressed: () =>
+                                              _cambiarCantidad(indice, -1),
+                                        ),
+                                        Text(
+                                          '${item.cantidad}',
+                                          style: const TextStyle(fontSize: 16),
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.add_circle_outline,
+                                          ),
+                                          onPressed: () =>
+                                              _cambiarCantidad(indice, 1),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        SizedBox(
+                                          width: 90,
+                                          child: Text(
+                                            formatearPesos(item.subtotal),
+                                            textAlign: TextAlign.right,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                width: 280,
+                padding: const EdgeInsets.all(24),
+                decoration: const BoxDecoration(
+                  color: Marca.carbon,
+                  border: Border(left: BorderSide(color: Marca.borde)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      _cuentas[_cuentaActivaIndice].nombre,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      'Caja abierta con: ${formatearPesos(widget.montoInicial)}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Marca.textoSuave,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    if (_ahorroTotal > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          'Ahorro por promociones: ${formatearPesos(_ahorroTotal)}',
+                          style: const TextStyle(color: Marca.exito),
+                        ),
+                      ),
                     Container(
-                      width: double.infinity,
-                      color: Colors.orange.shade100,
                       padding: const EdgeInsets.symmetric(
                         horizontal: 16,
-                        vertical: 8,
+                        vertical: 14,
                       ),
-                      child: Row(
+                      decoration: BoxDecoration(
+                        gradient: Marca.degradadoTarjeta,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: Marca.dorado.withValues(alpha: 0.45),
+                        ),
+                        boxShadow: Marca.brilloDorado,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.cloud_off, color: Colors.orange.shade900),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Sin conexión: puedes seguir vendiendo. Las '
-                              'ventas se guardan en este equipo y se envían '
-                              'solas al volver internet.',
-                              style: TextStyle(color: Colors.orange.shade900),
+                          const Text(
+                            'TOTAL',
+                            style: TextStyle(
+                              color: Marca.textoSobreOscuro,
+                              fontSize: 12,
+                              letterSpacing: 1.4,
+                            ),
+                          ),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: NumeroAnimado(
+                              valor: _total,
+                              formato: formatearPesos,
+                              duracion: const Duration(milliseconds: 350),
+                              estilo: const TextStyle(
+                                color: Marca.dorado,
+                                fontSize: 34,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
                         ],
                       ),
                     ),
-                  SizedBox(
-                    height: 58,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 6,
+                    const Spacer(),
+                    OutlinedButton.icon(
+                      onPressed: _mostrarHistorial,
+                      icon: const Icon(Icons.history),
+                      label: const Text('Historial de ventas'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
-                      children: [
-                        for (var i = 0; i < _cuentas.length; i++)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: _PestanaCuenta(
-                              cuenta: _cuentas[i],
-                              activa: i == _cuentaActivaIndice,
-                              onTap: () => _cambiarCuenta(i),
-                              onCerrar: () => _cerrarCuenta(i),
-                            ),
-                          ),
-                        ActionChip(
-                          avatar: const Icon(Icons.add, size: 18),
-                          label: const Text('Nueva cuenta'),
-                          onPressed: _nuevaCuenta,
-                        ),
-                      ],
                     ),
-                  ),
-                  const Divider(height: 1),
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: TextField(
-                      controller: _codigoController,
-                      focusNode: _codigoFocus,
-                      autofocus: true,
-                      decoration: InputDecoration(
-                        labelText: 'Escanea o ingresa el código de barras',
-                        border: const OutlineInputBorder(),
-                        prefixIcon: const Icon(Icons.qr_code_scanner),
-                        suffixIcon: _buscando
-                            ? const Padding(
-                                padding: EdgeInsets.all(12),
-                                child: SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                ),
-                              )
-                            : null,
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: _carrito.isEmpty || _registrando
+                          ? null
+                          : _cobrar,
+                      icon: _registrando
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.point_of_sale),
+                      label: const Text('Cobrar'),
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 18),
                       ),
-                      onSubmitted: _buscarYAgregar,
                     ),
-                  ),
-                  Expanded(
-                    child: _carrito.isEmpty
-                        ? const Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                MascotaFusion(tamano: 150),
-                                SizedBox(height: 12),
-                                Text(
-                                  'Escanea un producto para comenzar',
-                                  style: TextStyle(color: Marca.textoSuave),
-                                ),
-                              ],
-                            ),
-                          )
-                        : ListView.builder(
-                            itemCount: _carrito.length,
-                            itemBuilder: (context, indice) {
-                              final item = _carrito[indice];
-                              return Card(
-                                margin: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 6,
-                                ),
-                                child: ListTile(
-                                  leading: IconButton(
-                                    icon: const Icon(Icons.delete_outline),
-                                    onPressed: () => setState(
-                                      () => _carrito.removeAt(indice),
-                                    ),
-                                  ),
-                                  title: Text(item.producto.nombre),
-                                  subtitle: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        item.producto.tienePromo
-                                            ? 'Promo: ${item.producto.promoCantidad} x '
-                                                  '${formatearPesos(item.producto.promoPrecioPack)} · '
-                                                  '${formatearPesos(item.producto.precio)} c/u'
-                                            : '${formatearPesos(item.producto.precio)} c/u',
-                                      ),
-                                      if (item.producto.controlaStock)
-                                        Text(
-                                          'Quedan ${_stockDe(item.producto) - item.cantidad} disponibles',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color:
-                                                _stockDe(item.producto) -
-                                                        item.cantidad <=
-                                                    0
-                                                ? Colors.red
-                                                : Colors.grey[600],
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                  trailing: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      IconButton(
-                                        icon: const Icon(
-                                          Icons.remove_circle_outline,
-                                        ),
-                                        onPressed: () =>
-                                            _cambiarCantidad(indice, -1),
-                                      ),
-                                      Text(
-                                        '${item.cantidad}',
-                                        style: const TextStyle(fontSize: 16),
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(
-                                          Icons.add_circle_outline,
-                                        ),
-                                        onPressed: () =>
-                                            _cambiarCantidad(indice, 1),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      SizedBox(
-                                        width: 90,
-                                        child: Text(
-                                          formatearPesos(item.subtotal),
-                                          textAlign: TextAlign.right,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              width: 280,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border(
-                  left: BorderSide(color: Theme.of(context).dividerColor),
+                  ],
                 ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    _cuentas[_cuentaActivaIndice].nombre,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    'Caja abierta con: ${formatearPesos(widget.montoInicial)}',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-                  ),
-                  const SizedBox(height: 16),
-                  if (_ahorroTotal > 0)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(
-                        'Ahorro por promociones: ${formatearPesos(_ahorroTotal)}',
-                        style: TextStyle(color: Colors.green[700]),
-                      ),
-                    ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 14,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Marca.carbon,
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'TOTAL',
-                          style: TextStyle(
-                            color: Marca.textoSobreOscuro,
-                            fontSize: 12,
-                            letterSpacing: 1.4,
-                          ),
-                        ),
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            formatearPesos(_total),
-                            style: const TextStyle(
-                              color: Marca.dorado,
-                              fontSize: 34,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Spacer(),
-                  OutlinedButton.icon(
-                    onPressed: _mostrarHistorial,
-                    icon: const Icon(Icons.history),
-                    label: const Text('Historial de ventas'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  FilledButton.icon(
-                    onPressed: _carrito.isEmpty || _registrando
-                        ? null
-                        : _cobrar,
-                    icon: _registrando
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.point_of_sale),
-                    label: const Text('Cobrar'),
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 18),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -880,10 +893,10 @@ class _PestanaCuenta extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
-          color: activa ? Marca.doradoSuave : Colors.white,
+          color: activa ? Marca.doradoSuave : Marca.superficie,
           border: Border.all(
             color: activa ? Marca.dorado : Marca.borde,
-            width: activa ? 2 : 1,
+            width: activa ? 1.5 : 1,
           ),
           borderRadius: BorderRadius.circular(14),
         ),
@@ -898,13 +911,16 @@ class _PestanaCuenta extends StatelessWidget {
                   cuenta.nombre,
                   style: TextStyle(
                     fontWeight: activa ? FontWeight.w700 : FontWeight.w500,
-                    color: Marca.negro,
+                    color: activa ? Marca.doradoClaro : Marca.texto,
                   ),
                 ),
                 if (total > 0)
                   Text(
                     formatearPesos(total),
-                    style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Marca.textoSuave,
+                    ),
                   ),
               ],
             ),

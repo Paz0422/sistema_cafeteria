@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../register_screen.dart';
-import 'package:cafeteria_sistema/constants.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/acceso.dart';
 import '../widgets/pantalla_marca.dart';
+import '../theme/marca.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -25,12 +27,14 @@ class _LoginScreenState extends State<LoginScreen> {
       _cargando = true;
     });
 
-    final usuario = _usuarioController.text.trim().toLowerCase();
-    final correoInterno = '$usuario$dominioInterno';
+    final usuario = normalizarUsuario(_usuarioController.text);
 
     try {
       await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: correoInterno,
+        email: correoDeAcceso(
+          usuario,
+          generacion: await _generacionDe(usuario),
+        ),
         password: _passwordController.text,
       );
     } on FirebaseAuthException {
@@ -42,6 +46,42 @@ class _LoginScreenState extends State<LoginScreen> {
         _cargando = false;
       });
     }
+  }
+
+  /// Si un admin restableció el acceso de este usuario, su cuenta actual es
+  /// una generación posterior a la primera. Si no se puede consultar (sin
+  /// internet, usuario inexistente), se prueba con la primera.
+  Future<int> _generacionDe(String usuario) async {
+    if (usuario.isEmpty) return 1;
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('accesos')
+          .doc(idAcceso(usuario))
+          .get();
+      return (doc.data()?['gen'] as num?)?.toInt() ?? 1;
+    } on FirebaseException {
+      return 1;
+    }
+  }
+
+  void _olvideContrasena() {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('¿Olvidaste tu contraseña?'),
+        content: const Text(
+          'Pídele a un administrador que te restablezca la contraseña desde '
+          'la sección Usuarios. Te dará una contraseña temporal: entra con '
+          'ella y el sistema te pedirá elegir una nueva.',
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Entendido'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -86,11 +126,21 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
             onSubmitted: (_) => _iniciarSesion(),
           ),
-          const SizedBox(height: 24),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: _cargando ? null : _olvideContrasena,
+              child: const Text('¿Olvidaste tu contraseña?'),
+            ),
+          ),
+          const SizedBox(height: 8),
           if (_error != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 16),
-              child: Text(_error!, style: const TextStyle(color: Colors.red)),
+              child: Text(
+                _error!,
+                style: const TextStyle(color: Marca.peligro),
+              ),
             ),
           SizedBox(
             height: 52,

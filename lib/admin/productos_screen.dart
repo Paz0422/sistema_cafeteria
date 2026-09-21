@@ -2,16 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/producto.dart';
+import '../utils/escritura_offline.dart';
 import '../utils/formato.dart';
+import '../utils/movimientos_stock.dart';
+import 'historial_stock_screen.dart';
 
 class ProductosScreen extends StatelessWidget {
   final String sucursalId;
+  final String usuarioNombre;
   final bool esAdmin;
   final bool mostrarAppBar;
 
   const ProductosScreen({
     super.key,
     required this.sucursalId,
+    required this.usuarioNombre,
     this.esAdmin = false,
     this.mostrarAppBar = true,
   });
@@ -26,16 +31,39 @@ class ProductosScreen extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: () => _abrirFormulario(context, null),
-                icon: const Icon(Icons.add),
-                label: const Text('Agregar producto'),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => _abrirFormulario(context, null),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Agregar producto'),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                  ),
                 ),
-              ),
+                if (esAdmin) ...[
+                  const SizedBox(width: 12),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            HistorialStockScreen(sucursalId: sucursalId),
+                      ),
+                    ),
+                    icon: const Icon(Icons.history),
+                    label: const Text('Historial de stock'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 16,
+                        horizontal: 20,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
           // El catálogo (nombre, precio, promo) es único para todas las
@@ -114,16 +142,22 @@ class ProductosScreen extends StatelessWidget {
   void _abrirFormulario(BuildContext context, Producto? producto) {
     showDialog(
       context: context,
-      builder: (context) =>
-          _FormularioProducto(sucursalId: sucursalId, producto: producto),
+      builder: (context) => _FormularioProducto(
+        sucursalId: sucursalId,
+        usuarioNombre: usuarioNombre,
+        producto: producto,
+      ),
     );
   }
 
   void _abrirAjusteStock(BuildContext context, Producto producto) {
     showDialog(
       context: context,
-      builder: (context) =>
-          _DialogoAjusteStock(sucursalId: sucursalId, producto: producto),
+      builder: (context) => _DialogoAjusteStock(
+        sucursalId: sucursalId,
+        usuarioNombre: usuarioNombre,
+        producto: producto,
+      ),
     );
   }
 
@@ -163,9 +197,14 @@ class ProductosScreen extends StatelessWidget {
 
 class _FormularioProducto extends StatefulWidget {
   final String sucursalId;
+  final String usuarioNombre;
   final Producto? producto;
 
-  const _FormularioProducto({required this.sucursalId, this.producto});
+  const _FormularioProducto({
+    required this.sucursalId,
+    required this.usuarioNombre,
+    this.producto,
+  });
 
   @override
   State<_FormularioProducto> createState() => _FormularioProductoState();
@@ -255,6 +294,30 @@ class _FormularioProductoState extends State<_FormularioProducto> {
 
     setState(() => _guardando = true);
     try {
+      final coleccion = FirebaseFirestore.instance.collection('productos');
+
+      // Dos productos con el mismo código harían que el escáner devuelva
+      // siempre el primero que encuentre. Al editar se ignora el propio.
+      final conMismoCodigo = await coleccion
+          .where('codigoBarras', isEqualTo: codigoBarras)
+          .get();
+      final repetido = conMismoCodigo.docs
+          .where((doc) => doc.id != widget.producto?.id)
+          .firstOrNull;
+      if (repetido != null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Ese código de barras ya pertenece a '
+                '"${repetido.data()['nombre']}".',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
       final datosBase = {
         'nombre': nombre,
         'codigoBarras': codigoBarras,
@@ -264,21 +327,48 @@ class _FormularioProductoState extends State<_FormularioProducto> {
         'controlaStock': _controlaStock,
       };
 
-      final coleccion = FirebaseFirestore.instance.collection('productos');
+      final batch = FirebaseFirestore.instance.batch();
       if (widget.producto == null) {
-        await coleccion.add({
+        final ref = coleccion.doc();
+        batch.set(ref, {
           ...datosBase,
           'stockPorSucursal': _controlaStock
               ? {widget.sucursalId: stockIngresado}
               : {},
         });
+        if (_controlaStock && stockIngresado > 0) {
+          registrarMovimientoStock(
+            batch,
+            productoId: ref.id,
+            productoNombre: nombre,
+            sucursalId: widget.sucursalId,
+            tipo: TipoMovimientoStock.stockInicial,
+            cantidad: stockIngresado,
+            stockAnterior: 0,
+            usuarioNombre: widget.usuarioNombre,
+          );
+        }
       } else {
-        await coleccion.doc(widget.producto!.id).update({
+        final stockAnterior = widget.producto!.stockEn(widget.sucursalId);
+        batch.update(coleccion.doc(widget.producto!.id), {
           ...datosBase,
           if (_controlaStock)
             'stockPorSucursal.${widget.sucursalId}': stockIngresado,
         });
+        if (_controlaStock && stockIngresado != stockAnterior) {
+          registrarMovimientoStock(
+            batch,
+            productoId: widget.producto!.id,
+            productoNombre: nombre,
+            sucursalId: widget.sucursalId,
+            tipo: TipoMovimientoStock.ajuste,
+            cantidad: stockIngresado - stockAnterior,
+            stockAnterior: stockAnterior,
+            usuarioNombre: widget.usuarioNombre,
+          );
+        }
       }
+      await esperarConfirmacion(batch.commit());
 
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -417,9 +507,14 @@ class _FormularioProductoState extends State<_FormularioProducto> {
 
 class _DialogoAjusteStock extends StatefulWidget {
   final String sucursalId;
+  final String usuarioNombre;
   final Producto producto;
 
-  const _DialogoAjusteStock({required this.sucursalId, required this.producto});
+  const _DialogoAjusteStock({
+    required this.sucursalId,
+    required this.usuarioNombre,
+    required this.producto,
+  });
 
   @override
   State<_DialogoAjusteStock> createState() => _DialogoAjusteStockState();
@@ -441,14 +536,31 @@ class _DialogoAjusteStockState extends State<_DialogoAjusteStock> {
 
     setState(() => _guardando = true);
     try {
-      final stockActual = widget.producto.stockEn(widget.sucursalId);
-      await FirebaseFirestore.instance
-          .collection('productos')
-          .doc(widget.producto.id)
-          .update({
-            'stockPorSucursal.${widget.sucursalId}':
-                stockActual + cantidadAgregar,
-          });
+      // Se suma con increment() en vez de escribir "stock visto + cantidad":
+      // así una venta que ocurra mientras este diálogo está abierto no se
+      // pisa.
+      final batch = FirebaseFirestore.instance.batch();
+      batch.update(
+        FirebaseFirestore.instance
+            .collection('productos')
+            .doc(widget.producto.id),
+        {
+          'stockPorSucursal.${widget.sucursalId}': FieldValue.increment(
+            cantidadAgregar,
+          ),
+        },
+      );
+      registrarMovimientoStock(
+        batch,
+        productoId: widget.producto.id,
+        productoNombre: widget.producto.nombre,
+        sucursalId: widget.sucursalId,
+        tipo: TipoMovimientoStock.ingreso,
+        cantidad: cantidadAgregar,
+        stockAnterior: widget.producto.stockEn(widget.sucursalId),
+        usuarioNombre: widget.usuarioNombre,
+      );
+      await esperarConfirmacion(batch.commit());
 
       if (mounted) Navigator.pop(context);
     } catch (e) {

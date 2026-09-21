@@ -133,6 +133,7 @@ class _PosScreenState extends State<PosScreen> {
                   ),
                   ProductosScreen(
                     sucursalId: widget.sucursalId,
+                    usuarioNombre: widget.vendedorNombre,
                     esAdmin: widget.esAdmin,
                     mostrarAppBar: false,
                   ),

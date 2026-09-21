@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/cliente.dart';
+import '../utils/escritura_offline.dart';
 import '../utils/formato.dart';
 
 class SeleccionarClienteDialog extends StatefulWidget {
@@ -51,14 +52,19 @@ class _SeleccionarClienteDialogState extends State<SeleccionarClienteDialog> {
     setState(() => _guardando = true);
     try {
       final direccion = _direccionNuevoController.text.trim();
-      final ref = await FirebaseFirestore.instance.collection('clientes').add({
-        'grupoClientesId': widget.grupoClientesId,
-        'nombre': nombre,
-        'telefono': telefono,
-        'direccion': direccion,
-        'limiteCredito': limiteCredito,
-        'deuda': 0,
-      });
+      // Id generado en el equipo: sin internet el cliente queda en cola y se
+      // puede usar de inmediato en esta venta.
+      final ref = FirebaseFirestore.instance.collection('clientes').doc();
+      await esperarConfirmacion(
+        ref.set({
+          'grupoClientesId': widget.grupoClientesId,
+          'nombre': nombre,
+          'telefono': telefono,
+          'direccion': direccion,
+          'limiteCredito': limiteCredito,
+          'deuda': 0,
+        }),
+      );
       if (mounted) {
         Navigator.pop(
           context,

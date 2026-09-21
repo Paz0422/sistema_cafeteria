@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../utils/escritura_offline.dart';
 import '../utils/formato.dart';
 import 'pos_screen.dart';
 
@@ -34,10 +35,19 @@ class _AperturaCajaScreenState extends State<AperturaCajaScreen> {
   Future<void> _abrirCaja() async {
     setState(() => _guardando = true);
     try {
-      final sucursalDoc = await FirebaseFirestore.instance
+      // La lista de sucursales ya se escuchó en la pantalla anterior, así que
+      // se lee de la caché local (sin esperar red); si no está, se pide normal.
+      final sucursalRef = FirebaseFirestore.instance
           .collection('sucursales')
-          .doc(widget.sucursalId)
-          .get();
+          .doc(widget.sucursalId);
+      DocumentSnapshot<Map<String, dynamic>> sucursalDoc;
+      try {
+        sucursalDoc = await sucursalRef.get(
+          const GetOptions(source: Source.cache),
+        );
+      } on FirebaseException {
+        sucursalDoc = await sucursalRef.get();
+      }
       final grupoClientesId =
           (sucursalDoc.data()?['grupoClientesId'] as String?)?.isNotEmpty ==
               true
@@ -45,18 +55,21 @@ class _AperturaCajaScreenState extends State<AperturaCajaScreen> {
           : widget.sucursalId;
 
       final vendedor = FirebaseAuth.instance.currentUser;
-      final turnoRef = await FirebaseFirestore.instance
-          .collection('turnos')
-          .add({
-            'estado': 'abierto',
-            'sucursalId': widget.sucursalId,
-            'fechaApertura': FieldValue.serverTimestamp(),
-            'vendedorUid': vendedor?.uid,
-            'vendedorNombre': widget.vendedorNombre,
-            'montoInicial': _totalInicial,
-            'billetesApertura': _billetes,
-            'monedasApertura': _monedas,
-          });
+      // El id se genera en el equipo para poder seguir sin esperar al
+      // servidor: sin internet el turno queda en cola y se sube solo después.
+      final turnoRef = FirebaseFirestore.instance.collection('turnos').doc();
+      await esperarConfirmacion(
+        turnoRef.set({
+          'estado': 'abierto',
+          'sucursalId': widget.sucursalId,
+          'fechaApertura': FieldValue.serverTimestamp(),
+          'vendedorUid': vendedor?.uid,
+          'vendedorNombre': widget.vendedorNombre,
+          'montoInicial': _totalInicial,
+          'billetesApertura': _billetes,
+          'monedasApertura': _monedas,
+        }),
+      );
 
       if (mounted) {
         Navigator.pushReplacement(

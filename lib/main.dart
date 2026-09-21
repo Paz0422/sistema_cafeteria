@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'auth/auth_gate.dart';
 
@@ -15,6 +17,17 @@ void main() async {
       measurementId: "G-YZQN3BR6T3",
     ),
   );
+
+  // En web la caché local viene desactivada por defecto. Con ella activa, las
+  // lecturas se sirven desde el navegador sin internet y las escrituras
+  // quedan en cola hasta que vuelva la conexión. Multi-pestaña evita que una
+  // segunda pestaña abierta se quede sin caché.
+  FirebaseFirestore.instance.settings = const Settings(
+    persistenceEnabled: true,
+    cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+    webPersistentTabManager: WebPersistentMultipleTabManager(),
+  );
+
   runApp(const MyApp());
 }
 
@@ -26,6 +39,9 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Cafetería Fusión',
       debugShowCheckedModeBanner: false,
+      locale: const Locale('es'),
+      supportedLocales: const [Locale('es')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       theme: ThemeData(colorSchemeSeed: Colors.brown, useMaterial3: true),
       home: const AuthGate(),
     );

@@ -56,6 +56,9 @@ android/key.properties
 **/linux/flutter/ephemeral/
 **/windows/flutter/ephemeral/
 
+# Caché local de la CLI de Firebase Hosting
+.firebase/
+
 # Firebase config (regenerate with `flutterfire configure` if ever removed)
 **/google-services.json
 **/GoogleService-Info.plist

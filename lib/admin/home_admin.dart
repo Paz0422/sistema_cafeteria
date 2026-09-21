@@ -91,6 +91,7 @@ class _HomeAdminState extends State<HomeAdmin> {
                 _ConSucursalSeleccionada(
                   builder: (sucursal) => ProductosScreen(
                     sucursalId: sucursal.id,
+                    usuarioNombre: widget.nombre,
                     esAdmin: true,
                     mostrarAppBar: false,
                   ),

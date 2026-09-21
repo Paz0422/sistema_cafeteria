@@ -67,19 +67,31 @@ service cloud.firestore {
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stockPorSucursal']));
     }
 
+    // Historial de ajustes manuales de stock: cualquiera del personal puede
+    // registrar el suyo, solo un admin lo consulta y nadie lo edita ni borra.
+    match /movimientosStock/{movimientoId} {
+      allow create: if esPersonal()
+        && request.resource.data.usuarioUid == request.auth.uid;
+      allow read: if esAdmin();
+      allow update, delete: if false;
+    }
+
+    // En ventas y turnos, esAdmin() va primero: el admin lee rangos enteros
+    // sin filtrar por vendedor, y así la consulta se aprueba sin depender de
+    // resource.data.
     match /ventas/{ventaId} {
       allow create: if esPersonal()
         && request.resource.data.vendedorUid == request.auth.uid;
-      allow read, update: if (esPersonal() && resource.data.vendedorUid == request.auth.uid)
-        || esAdmin();
+      allow read, update: if esAdmin()
+        || (esPersonal() && resource.data.vendedorUid == request.auth.uid);
       allow delete: if esAdmin();
     }
 
     match /turnos/{turnoId} {
       allow create: if esPersonal()
         && request.resource.data.vendedorUid == request.auth.uid;
-      allow read, update: if (esPersonal() && resource.data.vendedorUid == request.auth.uid)
-        || esAdmin();
+      allow read, update: if esAdmin()
+        || (esPersonal() && resource.data.vendedorUid == request.auth.uid);
       allow delete: if esAdmin();
     }
 

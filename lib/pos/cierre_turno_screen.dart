@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../utils/escritura_offline.dart';
 import '../utils/formato.dart';
 
 class _ResumenVentas {
@@ -105,6 +106,7 @@ class _CierreTurnoScreenState extends State<CierreTurnoScreen> {
   }
 
   Future<void> _cerrarTurno() async {
+    final mensajero = ScaffoldMessenger.of(context);
     setState(() => _guardando = true);
     try {
       // Se recalcula con una lectura fresca justo antes de cerrar, para
@@ -115,22 +117,29 @@ class _CierreTurnoScreenState extends State<CierreTurnoScreen> {
       final efectivoEsperado = widget.montoInicial + resumenFinal.totalEfectivo;
       final diferencia = _totalContado - efectivoEsperado;
 
-      await FirebaseFirestore.instance
-          .collection('turnos')
-          .doc(widget.turnoId)
-          .update({
-            'estado': 'cerrado',
-            'fechaCierre': FieldValue.serverTimestamp(),
-            'totalVentas': resumenFinal.totalVentas,
-            'totalEfectivoVentas': resumenFinal.totalEfectivo,
-            'totalTarjeta': resumenFinal.totalTarjeta,
-            'totalCredito': resumenFinal.totalCredito,
-            'efectivoEsperado': efectivoEsperado,
-            'billetesCierre': _billetes,
-            'monedasCierre': _monedas,
-            'totalContado': _totalContado,
-            'diferencia': diferencia,
-          });
+      await esperarConfirmacion(
+        FirebaseFirestore.instance
+            .collection('turnos')
+            .doc(widget.turnoId)
+            .update({
+              'estado': 'cerrado',
+              'fechaCierre': FieldValue.serverTimestamp(),
+              'totalVentas': resumenFinal.totalVentas,
+              'totalEfectivoVentas': resumenFinal.totalEfectivo,
+              'totalTarjeta': resumenFinal.totalTarjeta,
+              'totalCredito': resumenFinal.totalCredito,
+              'efectivoEsperado': efectivoEsperado,
+              'billetesCierre': _billetes,
+              'monedasCierre': _monedas,
+              'totalContado': _totalContado,
+              'diferencia': diferencia,
+            }),
+        siFallaDespues: (error) => mensajero.showSnackBar(
+          SnackBar(
+            content: Text('El cierre de turno no se pudo sincronizar: $error'),
+          ),
+        ),
+      );
 
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(

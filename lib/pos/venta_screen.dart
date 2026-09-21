@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -5,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/cuenta_abierta.dart';
 import '../models/producto.dart';
 import '../models/item_carrito.dart';
+import '../utils/escritura_offline.dart';
 import '../utils/formato.dart';
 import 'dialogo_pago.dart';
 import 'historial_ventas_screen.dart';
@@ -56,6 +58,40 @@ class _VentaScreenState extends State<VentaScreen> {
   bool _buscando = false;
   bool _registrando = false;
   ItemCarrito? _ultimoItem;
+
+  // Catálogo completo escuchado en vivo. Sirve para buscar códigos de barras
+  // y ver el stock actual sin depender de la red (la caché local lo mantiene
+  // aun sin internet), y sus metadatos dicen si hay conexión con el servidor.
+  Map<String, Producto> _catalogo = {};
+  bool _enLinea = true;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _suscripcion;
+
+  @override
+  void initState() {
+    super.initState();
+    _suscripcion = FirebaseFirestore.instance
+        .collection('productos')
+        .snapshots(includeMetadataChanges: true)
+        .listen((snapshot) {
+          if (!mounted) return;
+          setState(() {
+            _catalogo = {
+              for (final doc in snapshot.docs) doc.id: Producto.fromDoc(doc),
+            };
+            _enLinea = !snapshot.metadata.isFromCache;
+          });
+        }, onError: (_) {});
+  }
+
+  int _stockDe(Producto producto) =>
+      (_catalogo[producto.id] ?? producto).stockEn(widget.sucursalId);
+
+  Producto? _productoEnCatalogo(String codigo) {
+    for (final producto in _catalogo.values) {
+      if (producto.codigoBarras == codigo) return producto;
+    }
+    return null;
+  }
 
   List<ItemCarrito> get _carrito => _cuentas[_cuentaActivaIndice].carrito;
 
@@ -134,32 +170,38 @@ class _VentaScreenState extends State<VentaScreen> {
 
     setState(() => _buscando = true);
     try {
-      final resultado = await FirebaseFirestore.instance
-          .collection('productos')
-          .where('codigoBarras', isEqualTo: codigoLimpio)
-          .limit(1)
-          .get();
+      final enCatalogo = _productoEnCatalogo(codigoLimpio);
+      final Producto producto;
+      if (enCatalogo != null) {
+        producto = enCatalogo;
+      } else {
+        final resultado = await FirebaseFirestore.instance
+            .collection('productos')
+            .where('codigoBarras', isEqualTo: codigoLimpio)
+            .limit(1)
+            .get();
 
-      if (resultado.docs.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'No se encontró ningún producto con el código $codigoLimpio',
+        if (resultado.docs.isEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'No se encontró ningún producto con el código $codigoLimpio',
+                ),
               ),
-            ),
-          );
+            );
+          }
+          return;
         }
-        return;
+        producto = Producto.fromDoc(resultado.docs.first);
       }
 
-      final producto = Producto.fromDoc(resultado.docs.first);
       final indice = _carrito.indexWhere(
         (item) => item.producto.id == producto.id,
       );
       final cantidadEnCarrito = indice >= 0 ? _carrito[indice].cantidad : 0;
 
-      final stockDisponible = producto.stockEn(widget.sucursalId);
+      final stockDisponible = _stockDe(producto);
       if (producto.controlaStock && cantidadEnCarrito + 1 > stockDisponible) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -193,7 +235,7 @@ class _VentaScreenState extends State<VentaScreen> {
 
   void _cambiarCantidad(int indice, int delta) {
     final item = _carrito[indice];
-    final stockDisponible = item.producto.stockEn(widget.sucursalId);
+    final stockDisponible = _stockDe(item.producto);
 
     if (delta > 0 &&
         item.producto.controlaStock &&
@@ -229,9 +271,104 @@ class _VentaScreenState extends State<VentaScreen> {
     _cambiarCantidad(indice, 1);
   }
 
-  Future<void> _registrarVenta(ResultadoPago resultado) async {
+  Map<String, dynamic> _datosVenta(ResultadoPago resultado) {
+    return {
+      'fecha': FieldValue.serverTimestamp(),
+      'turnoId': widget.turnoId,
+      'sucursalId': widget.sucursalId,
+      'total': _total,
+      'metodoPago': resultado.metodo.name,
+      'vuelto': resultado.vuelto,
+      'montoEfectivo': resultado.montoEfectivo,
+      'vendedorUid': FirebaseAuth.instance.currentUser?.uid,
+      'vendedorNombre': widget.vendedorNombre,
+      'clienteId': resultado.cliente?.id,
+      'clienteNombre': resultado.cliente?.nombre,
+      'items': _carrito
+          .map(
+            (item) => {
+              'productoId': item.producto.id,
+              'nombre': item.producto.nombre,
+              'cantidad': item.cantidad,
+              'precioUnitario': item.producto.precio,
+              'subtotal': item.subtotal,
+            },
+          )
+          .toList(),
+    };
+  }
+
+  /// Devuelve `true` si el servidor confirmó la venta, o `false` si quedó
+  /// guardada en el dispositivo esperando sincronizarse.
+  Future<bool> _registrarVenta(ResultadoPago resultado) async {
+    if (_enLinea) {
+      try {
+        await _registrarVentaEnLinea(resultado);
+        return true;
+      } on FirebaseException catch (e) {
+        // Si la conexión se cayó justo ahora la transacción no se aplicó, así
+        // que es seguro reintentar por la vía sin conexión.
+        if (e.code != 'unavailable') rethrow;
+      }
+    }
+    return _registrarVentaSinConexion(resultado);
+  }
+
+  // Las transacciones necesitan hablar con el servidor, así que sin internet
+  // se usa un lote de escrituras: Firestore lo guarda en el dispositivo y lo
+  // envía solo al volver la conexión. El stock y la deuda se ajustan con
+  // increment() (suma/resta relativa) para no pisar ventas de otros equipos.
+  // A cambio, la validación se hace contra lo último que el equipo tenía en
+  // caché: dos equipos vendiendo sin conexión el mismo producto podrían dejar
+  // el stock en negativo al sincronizar.
+  Future<bool> _registrarVentaSinConexion(ResultadoPago resultado) async {
     final firestore = FirebaseFirestore.instance;
-    final vendedorUid = FirebaseAuth.instance.currentUser?.uid;
+    final batch = firestore.batch();
+
+    for (final item in _carrito.where((i) => i.producto.controlaStock)) {
+      final stockActual = _stockDe(item.producto);
+      if (stockActual < item.cantidad) {
+        throw _StockInsuficiente(item.producto.nombre, stockActual);
+      }
+      batch.update(firestore.collection('productos').doc(item.producto.id), {
+        'stockPorSucursal.${widget.sucursalId}': FieldValue.increment(
+          -item.cantidad,
+        ),
+      });
+    }
+
+    final cliente = resultado.cliente;
+    if (resultado.metodo == MetodoPago.credito && cliente != null) {
+      if (cliente.deuda + _total > cliente.limiteCredito) {
+        throw _LimiteCreditoExcedido(
+          cliente.nombre,
+          cliente.limiteCredito - cliente.deuda,
+        );
+      }
+      batch.update(firestore.collection('clientes').doc(cliente.id), {
+        'deuda': FieldValue.increment(_total),
+      });
+    }
+
+    batch.set(firestore.collection('ventas').doc(), _datosVenta(resultado));
+
+    final mensajero = ScaffoldMessenger.of(context);
+    return esperarConfirmacion(
+      batch.commit(),
+      siFallaDespues: (error) => mensajero.showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 10),
+          content: Text(
+            'Una venta hecha sin conexión fue rechazada al sincronizar y no '
+            'quedó registrada: $error',
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _registrarVentaEnLinea(ResultadoPago resultado) async {
+    final firestore = FirebaseFirestore.instance;
 
     final itemsConStock = _carrito
         .where((item) => item.producto.controlaStock)
@@ -294,30 +431,10 @@ class _VentaScreenState extends State<VentaScreen> {
         transaccion.update(clienteRef, {'deuda': nuevaDeuda});
       }
 
-      transaccion.set(firestore.collection('ventas').doc(), {
-        'fecha': FieldValue.serverTimestamp(),
-        'turnoId': widget.turnoId,
-        'sucursalId': widget.sucursalId,
-        'total': _total,
-        'metodoPago': resultado.metodo.name,
-        'vuelto': resultado.vuelto,
-        'montoEfectivo': resultado.montoEfectivo,
-        'vendedorUid': vendedorUid,
-        'vendedorNombre': widget.vendedorNombre,
-        'clienteId': resultado.cliente?.id,
-        'clienteNombre': resultado.cliente?.nombre,
-        'items': _carrito
-            .map(
-              (item) => {
-                'productoId': item.producto.id,
-                'nombre': item.producto.nombre,
-                'cantidad': item.cantidad,
-                'precioUnitario': item.producto.precio,
-                'subtotal': item.subtotal,
-              },
-            )
-            .toList(),
-      });
+      transaccion.set(
+        firestore.collection('ventas').doc(),
+        _datosVenta(resultado),
+      );
     });
   }
 
@@ -331,8 +448,9 @@ class _VentaScreenState extends State<VentaScreen> {
     if (resultado == null || !mounted) return;
 
     setState(() => _registrando = true);
+    bool confirmada;
     try {
-      await _registrarVenta(resultado);
+      confirmada = await _registrarVenta(resultado);
     } on _StockInsuficiente catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -367,15 +485,20 @@ class _VentaScreenState extends State<VentaScreen> {
       builder: (context) => _DialogoAutoCierre(
         child: AlertDialog(
           title: const Text('Venta registrada'),
-          content: Text(switch (resultado.metodo) {
-            MetodoPago.tarjeta =>
-              'Pago con tarjeta por ${formatearPesos(_total)}.',
-            MetodoPago.credito =>
-              'Venta a crédito de ${resultado.cliente?.nombre}: '
-                  '${formatearPesos(_total)}.',
-            MetodoPago.efectivo || MetodoPago.mixto =>
-              'Vuelto a entregar: ${formatearPesos(resultado.vuelto)}',
-          }),
+          content: Text(
+            switch (resultado.metodo) {
+                  MetodoPago.tarjeta =>
+                    'Pago con tarjeta por ${formatearPesos(_total)}.',
+                  MetodoPago.credito =>
+                    'Venta a crédito de ${resultado.cliente?.nombre}: '
+                        '${formatearPesos(_total)}.',
+                  MetodoPago.efectivo || MetodoPago.mixto =>
+                    'Vuelto a entregar: ${formatearPesos(resultado.vuelto)}',
+                } +
+                (confirmada
+                    ? ''
+                    : '\nSin conexión: se enviará sola al volver internet.'),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
@@ -421,6 +544,7 @@ class _VentaScreenState extends State<VentaScreen> {
 
   @override
   void dispose() {
+    _suscripcion?.cancel();
     _codigoController.dispose();
     _codigoFocus.dispose();
     super.dispose();
@@ -444,6 +568,29 @@ class _VentaScreenState extends State<VentaScreen> {
               flex: 3,
               child: Column(
                 children: [
+                  if (!_enLinea)
+                    Container(
+                      width: double.infinity,
+                      color: Colors.orange.shade100,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.cloud_off, color: Colors.orange.shade900),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Sin conexión: puedes seguir vendiendo. Las '
+                              'ventas se guardan en este equipo y se envían '
+                              'solas al volver internet.',
+                              style: TextStyle(color: Colors.orange.shade900),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   SizedBox(
                     height: 58,
                     child: ListView(
@@ -534,13 +681,11 @@ class _VentaScreenState extends State<VentaScreen> {
                                       ),
                                       if (item.producto.controlaStock)
                                         Text(
-                                          'Quedan ${item.producto.stockEn(widget.sucursalId) - item.cantidad} disponibles',
+                                          'Quedan ${_stockDe(item.producto) - item.cantidad} disponibles',
                                           style: TextStyle(
                                             fontSize: 12,
                                             color:
-                                                item.producto.stockEn(
-                                                          widget.sucursalId,
-                                                        ) -
+                                                _stockDe(item.producto) -
                                                         item.cantidad <=
                                                     0
                                                 ? Colors.red

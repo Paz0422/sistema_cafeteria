@@ -11,8 +11,6 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  static const _codigoInvitacionValido = 'PERSONALFUSION';
-
   final _nombreController = TextEditingController();
   final _usuarioController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -27,8 +25,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _crearCuenta() async {
     setState(() => _error = null);
 
-    if (_codigoController.text.trim() != _codigoInvitacionValido) {
-      setState(() => _error = 'Código de invitación incorrecto');
+    final usuario = _usuarioController.text.trim().toLowerCase();
+    final nombre = _nombreController.text.trim();
+    final codigo = _codigoController.text.trim();
+
+    if (nombre.isEmpty || usuario.isEmpty || codigo.isEmpty) {
+      setState(() => _error = 'Completa nombre, usuario y código');
       return;
     }
     if (_passwordController.text != _confirmarController.text) {
@@ -38,7 +40,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     setState(() => _cargando = true);
 
-    final usuario = _usuarioController.text.trim().toLowerCase();
     final correoInterno = '$usuario$dominioInterno';
 
     try {
@@ -48,14 +49,28 @@ class _RegisterScreenState extends State<RegisterScreen> {
             password: _passwordController.text,
           );
 
-      await FirebaseFirestore.instance
-          .collection('usuarios')
-          .doc(credencial.user!.uid)
-          .set({
-            'nombre': _nombreController.text.trim(),
-            'usuario': usuario,
-            'rol': 'vendedor',
-          });
+      // El código se valida en las reglas de Firestore (no aquí), y el rol
+      // siempre nace 'vendedor': solo un admin puede dar o cambiar roles.
+      try {
+        await FirebaseFirestore.instance
+            .collection('usuarios')
+            .doc(credencial.user!.uid)
+            .set({
+              'nombre': nombre,
+              'usuario': usuario,
+              'rol': 'vendedor',
+              'codigoInvitacion': codigo,
+            });
+      } on FirebaseException {
+        // Si el perfil no se pudo crear (típicamente código incorrecto), se
+        // borra la cuenta recién hecha para no dejar un usuario huérfano.
+        await credencial.user!.delete();
+        if (mounted) {
+          setState(() => _error = 'Código de invitación incorrecto');
+        }
+        return;
+      }
+
       if (mounted) {
         await showDialog(
           context: context,

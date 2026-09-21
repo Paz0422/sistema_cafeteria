@@ -25,38 +25,87 @@ class AuthGate extends StatelessWidget {
 
         final uid = authSnapshot.data!.uid;
 
-        return FutureBuilder<DocumentSnapshot>(
-          future: FirebaseFirestore.instance
+        // Se escucha el perfil en vivo: así una cuenta recién registrada
+        // no falla por llegar antes que su perfil, y una cuenta pendiente
+        // entra sola apenas un admin la aprueba.
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
               .collection('usuarios')
               .doc(uid)
-              .get(),
+              .snapshots(),
           builder: (context, userSnapshot) {
-            if (userSnapshot.connectionState == ConnectionState.waiting) {
+            if (userSnapshot.hasError) {
+              return const _PantallaEspera(
+                mensaje: 'No se pudo cargar tu perfil de usuario.',
+              );
+            }
+            if (!userSnapshot.hasData) {
               return const Scaffold(
                 body: Center(child: CircularProgressIndicator()),
               );
             }
 
-            if (!userSnapshot.hasData || !userSnapshot.data!.exists) {
-              return const Scaffold(
-                body: Center(
-                  child: Text('No se encontró tu perfil de usuario'),
-                ),
+            final doc = userSnapshot.data!;
+            if (!doc.exists) {
+              return const _PantallaEspera(
+                mensaje: 'No se encontró tu perfil de usuario.',
               );
             }
 
-            final datos = userSnapshot.data!.data() as Map<String, dynamic>;
-            final rol = datos['rol'] as String;
-            final nombre = datos['nombre'] as String;
+            final datos = doc.data()!;
+            final nombre = datos['nombre'] as String? ?? '';
 
-            if (rol == 'vendedor' || rol == 'invitado') {
-              return HomeVendedor(nombre: nombre);
-            }
-
-            return HomeAdmin(nombre: nombre);
+            return switch (datos['rol']) {
+              'admin' => HomeAdmin(nombre: nombre),
+              'vendedor' => HomeVendedor(nombre: nombre),
+              _ => const _PantallaEspera(
+                mensaje:
+                    'Tu cuenta no tiene acceso al sistema. Pídele a un '
+                    'administrador que la active y esta pantalla se '
+                    'actualizará sola.',
+              ),
+            };
           },
         );
       },
+    );
+  }
+}
+
+class _PantallaEspera extends StatelessWidget {
+  final String mensaje;
+
+  const _PantallaEspera({required this.mensaje});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Cafetería Fusión'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Cerrar sesión',
+            onPressed: () => FirebaseAuth.instance.signOut(),
+          ),
+        ],
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.hourglass_top, size: 48),
+                const SizedBox(height: 16),
+                Text(mensaje, textAlign: TextAlign.center),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

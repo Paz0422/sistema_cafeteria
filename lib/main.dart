@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'auth/login_screen.dart';
 import 'auth/auth_gate.dart';
 
 void main() async {
@@ -26,6 +25,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Cafetería Fusión',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(colorSchemeSeed: Colors.brown, useMaterial3: true),
       home: const AuthGate(),
     );

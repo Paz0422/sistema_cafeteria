@@ -32,7 +32,7 @@ class _LoginScreenState extends State<LoginScreen> {
         email: correoInterno,
         password: _passwordController.text,
       );
-    } on FirebaseAuthException catch (e) {
+    } on FirebaseAuthException {
       setState(() {
         _error = 'Usuario o contraseña incorrectos';
       });

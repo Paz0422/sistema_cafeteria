@@ -32,6 +32,32 @@ class PosScreen extends StatefulWidget {
 class _PosScreenState extends State<PosScreen> {
   int _seleccionado = 0;
 
+  Future<void> _cerrarSesion() async {
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cerrar sesión'),
+        content: const Text(
+          'Tu turno sigue abierto y cualquier carrito sin cobrar se '
+          'perderá. ¿Cerrar sesión igual?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Cerrar sesión'),
+          ),
+        ],
+      ),
+    );
+    if (confirmado == true) {
+      await FirebaseAuth.instance.signOut();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -44,7 +70,7 @@ class _PosScreenState extends State<PosScreen> {
             IconButton(
               icon: const Icon(Icons.logout),
               tooltip: 'Cerrar sesión',
-              onPressed: () => FirebaseAuth.instance.signOut(),
+              onPressed: _cerrarSesion,
             ),
           ],
         ),

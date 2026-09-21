@@ -1,0 +1,94 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function estaAutenticado() {
+      return request.auth != null;
+    }
+
+    // Devuelve el rol guardado en usuarios/{uid}, o null si el perfil no
+    // existe (así ninguna regla se rompe por un perfil faltante).
+    function rolDe(uid) {
+      return exists(/databases/$(database)/documents/usuarios/$(uid))
+        ? get(/databases/$(database)/documents/usuarios/$(uid)).data.rol
+        : null;
+    }
+
+    function esAdmin() {
+      return estaAutenticado() && rolDe(request.auth.uid) == 'admin';
+    }
+
+    // Personal con acceso. Un admin puede desactivar una cuenta dejándola
+    // en rol 'pendiente'.
+    function esPersonal() {
+      return estaAutenticado() && rolDe(request.auth.uid) in ['admin', 'vendedor'];
+    }
+
+    // Documento con el código de invitación vigente: config/registro
+    // { codigo: '...' }. Se crea a mano en la consola; los clientes no
+    // pueden leerlo ni escribirlo (solo estas reglas lo consultan).
+    match /config/{documento} {
+      allow read, write: if false;
+    }
+
+    match /usuarios/{uid} {
+      allow read: if (estaAutenticado() && request.auth.uid == uid) || esAdmin();
+
+      // Auto-registro: solo el propio perfil, siempre como 'vendedor' (nunca
+      // 'admin'), con exactamente estos campos y el código de invitación
+      // correcto.
+      allow create: if estaAutenticado()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['nombre', 'usuario', 'rol', 'codigoInvitacion'])
+        && request.resource.data.rol == 'vendedor'
+        && request.resource.data.codigoInvitacion is string
+        && request.resource.data.codigoInvitacion ==
+           get(/databases/$(database)/documents/config/registro).data.codigo;
+
+      // Solo un admin cambia roles, solo el campo rol, solo a valores
+      // válidos, y no el suyo propio (evita quedarse sin admins).
+      allow update: if esAdmin()
+        && request.auth.uid != uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rol'])
+        && request.resource.data.rol in ['admin', 'vendedor', 'pendiente'];
+      allow delete: if esAdmin() && request.auth.uid != uid;
+    }
+
+    match /sucursales/{sucursalId} {
+      allow read: if esPersonal();
+      allow create, update, delete: if esAdmin();
+    }
+
+    match /productos/{productoId} {
+      allow read, create: if esPersonal();
+      allow delete: if esAdmin();
+      allow update: if esAdmin() ||
+        (esPersonal() &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stockPorSucursal']));
+    }
+
+    match /ventas/{ventaId} {
+      allow create: if esPersonal()
+        && request.resource.data.vendedorUid == request.auth.uid;
+      allow read, update: if (esPersonal() && resource.data.vendedorUid == request.auth.uid)
+        || esAdmin();
+      allow delete: if esAdmin();
+    }
+
+    match /turnos/{turnoId} {
+      allow create: if esPersonal()
+        && request.resource.data.vendedorUid == request.auth.uid;
+      allow read, update: if (esPersonal() && resource.data.vendedorUid == request.auth.uid)
+        || esAdmin();
+      allow delete: if esAdmin();
+    }
+
+    match /clientes/{clienteId} {
+      allow read, create: if esPersonal();
+      allow update: if esAdmin() ||
+        (esPersonal() &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deuda']));
+      allow delete: if esAdmin();
+    }
+  }
+}
